@@ -1,0 +1,156 @@
+.root-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden !important;
+}
+
+.header-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header-title-container {
+  display: flex;
+  /* 让左容器占据剩余空间，使其居中 */
+  flex: 1;
+  justify-content: center;
+  gap: 4px;
+}
+
+.title-container {
+  font-weight: 600;
+  padding-top: 2px;
+}
+
+.icon-container svg {
+  transform: translateY(4px);
+}
+
+.level-one-item-icon svg,
+.level-two-item-icon svg {
+  transform: translateY(4px);
+}
+
+.collapse-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+
+.divider-container {
+  height: 1px;
+  background-color: var(--background-modifier-border);
+  margin: 8px 0;
+}
+
+.body-container {
+  height: 100%;
+  overflow-y: auto;
+  padding-top: 4px;
+  padding-left: 10px;
+}
+
+.md-tree-container {
+  padding-right: 4px;
+}
+
+.md-tree-container2::before {
+  content: "";
+  /* 控制线的位置 */
+  position: absolute;
+  left: 8px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  /* 线颜色 */
+  background: var(--background-modifier-border);
+  opacity: 0.75;
+}
+
+.md-tree-container3::before {
+  content: "";
+  /* 控制线的位置 */
+  position: absolute;
+  left: 8px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  /* 线颜色 */
+  background: var(--background-modifier-border);
+  opacity: 0.75;
+}
+
+/* 二级和三级容器的缩进量 */
+.md-tree-container2,
+.md-tree-container3 {
+  position: relative;
+  padding-left: 24px;
+  width: 100%;
+}
+
+.level-one-item,
+.level-two-item,
+.level-three-item {
+  display: flex;
+  gap: 4px;
+  padding-top: 2px;
+  padding-bottom: 4px;
+  margin-right: -4px;
+  padding-right: 4px;
+}
+
+/* 处理各级容器的父级元素缩进后的裁剪问题 */
+.level-one-item {
+  margin-left: -8px;
+  padding-left: 8px;
+}
+
+.level-two-item {
+  margin-left: -32px;
+  padding-left: 32px;
+}
+
+.level-three-item {
+  margin-left: -56px;
+  padding-left: 56px;
+}
+
+.level-one-item:hover,
+.level-two-item:hover,
+.level-three-item:hover {
+  background-color: var(--background-modifier-hover);
+  border-radius: 4px;
+  /* outline: 1px solid red; */
+}
+
+/* 内容的文字元素分别向两端对齐 */
+.level-one-item-text,
+.level-two-item-text,
+.level-three-item-text {
+  display: flex;
+  flex: 1;
+  justify-content: space-between;
+}
+
+.level-one-item-name {
+  font-size: 16px;
+  padding-top: 4px;
+}
+
+.level-two-item-name {
+  font-size: 16px;
+  padding-top: 4px;
+}
+
+.level-three-item-name {
+  font-size: 14px;
+}
+
+.level-one-item-counter,
+.level-two-item-counter {
+  font-size: 14px;
+  color: var(--text-muted);
+}
