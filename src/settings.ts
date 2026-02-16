@@ -2,18 +2,61 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 import type ChineseWriterPlugin from "./main";
 
 /**
+ * 文件夹对应关系
+ */
+export interface FolderMapping {
+  /** 唯一ID */
+  id: string;
+  /** 小说库路径 */
+  novelFolder: string;
+  /** 设定库路径 */
+  settingFolder: string;
+}
+
+/**
+ * 高亮样式配置
+ */
+export interface HighlightStyle {
+  /** 背景色 */
+  backgroundColor: string;
+  /** 边框样式 (solid, dashed, dotted, double) */
+  borderStyle: string;
+  /** 边框粗细 (px) */
+  borderWidth: number;
+  /** 边框颜色 */
+  borderColor: string;
+  /** 字体粗细 (normal, bold) */
+  fontWeight: string;
+  /** 字体样式 (normal, italic) */
+  fontStyle: string;
+  /** 文字颜色 */
+  color: string;
+}
+
+/**
  * 插件设置接口
  */
 export interface ChineseWriterSettings {
-  /** 要读取的目录路径 */
-  targetFolder: string;
+  /** 文件夹对应关系列表 */
+  folderMappings: FolderMapping[];
+  /** 高亮样式配置 */
+  highlightStyle: HighlightStyle;
 }
 
 /**
  * 默认设置
  */
 export const DEFAULT_SETTINGS: ChineseWriterSettings = {
-  targetFolder: "",
+  folderMappings: [],
+  highlightStyle: {
+    backgroundColor: "#FFFFF00",
+    borderStyle: "dotted",
+    borderWidth: 2,
+    borderColor: "#4A86E9",
+    fontWeight: "normal",
+    fontStyle: "normal",
+    color: "#4A86E9"
+  }
 };
 
 /**
@@ -32,19 +75,305 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
 
     containerEl.empty();
 
+    containerEl.createEl("h2", { text: "中文写作插件设置" });
+
+    // 文件夹对应关系设置
+    containerEl.createEl("h3", { text: "文件夹对应关系" });
+    containerEl.createEl("p", { 
+      text: "配置小说库和设定库的对应关系。在小说库文件打开时，会显示对应设定库的内容，并高亮关键字。",
+      cls: "setting-item-description"
+    });
+
+    // 显示现有的对应关系
+    const mappingsContainer = containerEl.createDiv({ cls: "folder-mappings-container" });
+    this.renderMappings(mappingsContainer);
+
+    // 添加新对应关系按钮
     new Setting(containerEl)
-      .setName("目标文件夹")
-      .setDesc("指定要读取 Markdown 文件的文件夹路径（相对于仓库根目录）")
-      .addText((text) =>
-        text
-          .setPlaceholder("例如: 小说/第一部")
-          .setValue(this.plugin.settings.targetFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.targetFolder = value;
-            await this.plugin.saveSettings();
-            // 刷新视图
-            this.plugin.refreshView();
+      .setName("添加新对应关系")
+      .addButton((button) =>
+        button
+          .setButtonText("添加")
+          .setCta()
+          .onClick(async () => {
+            await this.addNewMapping();
           })
       );
+
+    // 高亮样式设置
+    containerEl.createEl("h3", { text: "关键字高亮样式" });
+
+    new Setting(containerEl)
+      .setName("背景色")
+      .setDesc("高亮关键字的背景颜色（支持8位HEX，如 #FFFFF00，最后两位为透明度）")
+      .addText((text) =>
+        text
+          .setPlaceholder("#FFFFF00")
+          .setValue(this.plugin.settings.highlightStyle.backgroundColor)
+          .onChange(async (value) => {
+            this.plugin.settings.highlightStyle.backgroundColor = value;
+            await this.plugin.saveSettings();
+            this.updateHighlightStyles();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("边框样式")
+      .setDesc("高亮关键字的下边框样式")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("solid", "实线")
+          .addOption("dashed", "虚线")
+          .addOption("dotted", "点线")
+          .addOption("double", "双线")
+          .setValue(this.plugin.settings.highlightStyle.borderStyle)
+          .onChange(async (value) => {
+            this.plugin.settings.highlightStyle.borderStyle = value;
+            await this.plugin.saveSettings();
+            this.updateHighlightStyles();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("边框粗细")
+      .setDesc("高亮关键字的下边框粗细（0-10像素）")
+      .addSlider((slider) =>
+        slider
+          .setLimits(0, 10, 1)
+          .setValue(this.plugin.settings.highlightStyle.borderWidth)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            this.plugin.settings.highlightStyle.borderWidth = value;
+            await this.plugin.saveSettings();
+            this.updateHighlightStyles();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("边框颜色")
+      .setDesc("高亮关键字的下边框颜色")
+      .addText((text) =>
+        text
+          .setPlaceholder("#4A86E9")
+          .setValue(this.plugin.settings.highlightStyle.borderColor)
+          .onChange(async (value) => {
+            this.plugin.settings.highlightStyle.borderColor = value;
+            await this.plugin.saveSettings();
+            this.updateHighlightStyles();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("字体粗细")
+      .setDesc("高亮关键字的字体粗细")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("normal", "正常")
+          .addOption("bold", "粗体")
+          .setValue(this.plugin.settings.highlightStyle.fontWeight)
+          .onChange(async (value) => {
+            this.plugin.settings.highlightStyle.fontWeight = value;
+            await this.plugin.saveSettings();
+            this.updateHighlightStyles();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("字体样式")
+      .setDesc("高亮关键字的字体样式")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("normal", "正常")
+          .addOption("italic", "斜体")
+          .setValue(this.plugin.settings.highlightStyle.fontStyle)
+          .onChange(async (value) => {
+            this.plugin.settings.highlightStyle.fontStyle = value;
+            await this.plugin.saveSettings();
+            this.updateHighlightStyles();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("文字颜色")
+      .setDesc("高亮关键字的文字颜色（支持8位HEX，如 #4A86E9ff，inherit表示继承原有颜色）")
+      .addText((text) =>
+        text
+          .setPlaceholder("#4A86E9")
+          .setValue(this.plugin.settings.highlightStyle.color)
+          .onChange(async (value) => {
+            this.plugin.settings.highlightStyle.color = value;
+            await this.plugin.saveSettings();
+            this.updateHighlightStyles();
+          })
+      );
+  }
+
+  /**
+   * 渲染文件夹对应关系列表
+   */
+  private renderMappings(container: HTMLElement): void {
+    container.empty();
+
+    if (this.plugin.settings.folderMappings.length === 0) {
+      container.createEl("p", { 
+        text: "暂无对应关系，请点击下方按钮添加。",
+        cls: "setting-item-description"
+      });
+      return;
+    }
+
+    this.plugin.settings.folderMappings.forEach((mapping, index) => {
+      const displayText = `${mapping.novelFolder || "未设置"} → ${mapping.settingFolder || "未设置"}`;
+      
+      new Setting(container)
+        .setName(displayText)
+        .setClass("folder-mapping-item")
+        .addButton((button) =>
+          button
+            .setButtonText("编辑")
+            .onClick(async () => {
+              await this.editMapping(mapping);
+            })
+        )
+        .addButton((button) =>
+          button
+            .setButtonText("删除")
+            .setWarning()
+            .onClick(async () => {
+              this.plugin.settings.folderMappings = 
+                this.plugin.settings.folderMappings.filter(m => m.id !== mapping.id);
+              await this.plugin.saveSettings();
+              await this.plugin.refreshView();
+              this.display();
+            })
+        );
+    });
+  }
+
+  /**
+   * 编辑现有的对应关系
+   */
+  private async editMapping(mapping: FolderMapping): Promise<void> {
+    const { TextInputModal } = await import("./modals");
+    
+    // 第一次弹出：编辑小说库路径
+    new TextInputModal(
+      this.app,
+      "编辑对应关系 - 步骤 1/2",
+      "请输入小说库路径（相对于仓库根目录）",
+      mapping.novelFolder,
+      async (novelFolder) => {
+        if (!novelFolder.trim()) {
+          return;
+        }
+
+        // 延迟打开第二个弹出框，确保第一个弹出框完全关闭
+        setTimeout(() => {
+          // 第二次弹出：编辑设定库路径
+          new TextInputModal(
+            this.app,
+            "编辑对应关系 - 步骤 2/2",
+            "请输入设定库路径（相对于仓库根目录）",
+            mapping.settingFolder,
+            async (settingFolder) => {
+              if (!settingFolder.trim()) {
+                return;
+              }
+
+              // 更新对应关系
+              mapping.novelFolder = novelFolder.trim();
+              mapping.settingFolder = settingFolder.trim();
+
+              await this.plugin.saveSettings();
+              
+              // 延迟刷新界面和编辑器，确保弹出框完全关闭
+              setTimeout(async () => {
+                await this.plugin.refreshView();
+                this.refreshEditorHighlight();
+                this.display();
+              }, 50);
+            }
+          ).open();
+        }, 100);
+      }
+    ).open();
+  }
+
+  /**
+   * 添加新的对应关系（使用两次弹出输入框）
+   */
+  private async addNewMapping(): Promise<void> {
+    const { TextInputModal } = await import("./modals");
+    
+    // 第一次弹出：输入小说库路径
+    new TextInputModal(
+      this.app,
+      "添加对应关系 - 步骤 1/2",
+      "请输入小说库路径（相对于仓库根目录）",
+      "",
+      async (novelFolder) => {
+        if (!novelFolder.trim()) {
+          return;
+        }
+
+        // 延迟打开第二个弹出框，确保第一个弹出框完全关闭
+        setTimeout(() => {
+          // 第二次弹出：输入设定库路径
+          new TextInputModal(
+            this.app,
+            "添加对应关系 - 步骤 2/2",
+            "请输入设定库路径（相对于仓库根目录）",
+            "",
+            async (settingFolder) => {
+              if (!settingFolder.trim()) {
+                return;
+              }
+
+              // 创建新的对应关系
+              const newMapping: FolderMapping = {
+                id: Date.now().toString(),
+                novelFolder: novelFolder.trim(),
+                settingFolder: settingFolder.trim()
+              };
+
+              this.plugin.settings.folderMappings.push(newMapping);
+              await this.plugin.saveSettings();
+              
+              // 延迟刷新界面和编辑器，确保弹出框完全关闭
+              setTimeout(async () => {
+                await this.plugin.refreshView();
+                this.refreshEditorHighlight();
+                this.display();
+              }, 50);
+            }
+          ).open();
+        }, 100);
+      }
+    ).open();
+  }
+
+  /**
+   * 更新高亮样式
+   */
+  private updateHighlightStyles(): void {
+    // 触发编辑器更新高亮样式
+    if (this.plugin.highlightManager) {
+      this.plugin.highlightManager.updateStyles();
+    }
+  }
+
+  /**
+   * 刷新编辑器高亮
+   */
+  private refreshEditorHighlight(): void {
+    // 清除关键字缓存
+    if (this.plugin.highlightManager) {
+      this.plugin.highlightManager.clearCache();
+    }
+    
+    // 触发编辑器刷新
+    setTimeout(() => {
+      this.app.workspace.updateOptions();
+    }, 100);
   }
 }

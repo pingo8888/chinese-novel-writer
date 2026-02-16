@@ -1,5 +1,36 @@
 /* 中文写作插件样式 */
 
+/* 文件夹对应关系容器 */
+.folder-mappings-container {
+  margin: 16px 0;
+}
+
+.folder-mapping-item {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 12px;
+  background-color: var(--background-secondary);
+}
+
+.folder-mapping-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 8px;
+  color: var(--text-normal);
+  padding: 4px 8px;
+  background-color: var(--background-primary);
+  border-radius: 4px;
+}
+
+/* 关键字高亮默认样式（会被动态样式覆盖） */
+.chinese-writer-highlight {
+  background-color: #FFFFF00;
+  border-bottom: 2px dotted #4A86E9;
+  color: #4A86E9;
+  padding-bottom: 2px;
+}
+
 /* 主容器 */
 .chinese-writer-view {
   display: flex;

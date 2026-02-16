@@ -1,8 +1,9 @@
-import { Plugin, TFile } from "obsidian";
+import { Plugin, TFile, MarkdownView } from "obsidian";
 import { ChineseWriterSettings, DEFAULT_SETTINGS, ChineseWriterSettingTab } from "./settings";
 import { FileParser } from "./parser";
 import { TreeView, VIEW_TYPE_TREE } from "./tree-view";
 import { OrderManager } from "./order-manager";
+import { HighlightManager } from "./highlight-manager";
 
 /**
  * 中文写作插件主类
@@ -11,6 +12,7 @@ export default class ChineseWriterPlugin extends Plugin {
   settings: ChineseWriterSettings;
   parser: FileParser;
   orderManager: OrderManager;
+  highlightManager: HighlightManager;
 
   async onload() {
     // 加载设置
@@ -22,6 +24,15 @@ export default class ChineseWriterPlugin extends Plugin {
     // 初始化排序管理器
     this.orderManager = new OrderManager(this.app, this.manifest.dir || "");
     await this.orderManager.load();
+
+    // 初始化高亮管理器
+    this.highlightManager = new HighlightManager(this);
+
+    // 注册编辑器扩展（关键字高亮）
+    this.registerEditorExtension(this.highlightManager.createEditorExtension());
+
+    // 初始化高亮样式
+    this.highlightManager.updateStyles();
 
     // 注册视图
     this.registerView(
@@ -52,6 +63,24 @@ export default class ChineseWriterPlugin extends Plugin {
         // 当文件被修改时，智能更新视图（保持展开状态）
         if (file instanceof TFile && file.extension === "md") {
           this.smartUpdateView();
+
+          // 如果修改的是设定库中的文件，清除关键字缓存并刷新编辑器
+          for (const mapping of this.settings.folderMappings) {
+            if (mapping.settingFolder && file.path.startsWith(mapping.settingFolder + "/")) {
+              this.highlightManager.clearCache();
+              // 触发编辑器重新渲染以更新高亮
+              // 延迟执行以确保文件修改完成
+              setTimeout(() => {
+                this.app.workspace.updateOptions();
+                // 强制刷新当前活动的编辑器视图
+                const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+                if (activeView && activeView.editor) {
+                  activeView.editor.refresh();
+                }
+              }, 100);
+              break;
+            }
+          }
         }
       })
     );
@@ -150,7 +179,15 @@ export default class ChineseWriterPlugin extends Plugin {
    * 加载设置
    */
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const data = await this.loadData();
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
+
+    // 迁移旧的 targetFolder 配置（如果存在）
+    if (data && data.targetFolder && this.settings.folderMappings.length === 0) {
+      // 将旧的 targetFolder 转换为一个空的对应关系（仅设定库）
+      // 用户需要手动配置小说库路径
+      console.log("检测到旧版本配置，已删除 targetFolder 字段。请在设置中配置新的文件夹对应关系。");
+    }
   }
 
   /**
@@ -164,14 +201,17 @@ export default class ChineseWriterPlugin extends Plugin {
    * 文件创建时同步 order.json
    */
   private async syncOrderOnFileCreate(file: TFile): Promise<void> {
-    const folderPath = this.settings.targetFolder;
-    if (!folderPath) {
-      await this.smartUpdateView();
-      return;
+    // 检查文件是否在任何设定库中
+    let folderPath: string | null = null;
+    for (const mapping of this.settings.folderMappings) {
+      if (mapping.settingFolder && file.path.startsWith(mapping.settingFolder + "/")) {
+        folderPath = mapping.settingFolder;
+        break;
+      }
     }
 
-    // 检查文件是否在目标文件夹内
-    if (!file.path.startsWith(folderPath + "/")) {
+    if (!folderPath) {
+      await this.smartUpdateView();
       return;
     }
 
@@ -187,7 +227,7 @@ export default class ChineseWriterPlugin extends Plugin {
     }
 
     await this.orderManager.setFileOrder(fileOrder);
-    
+
     // 延迟刷新视图
     setTimeout(() => {
       this.smartUpdateView();
@@ -198,14 +238,17 @@ export default class ChineseWriterPlugin extends Plugin {
    * 文件删除时同步 order.json
    */
   private async syncOrderOnFileDelete(file: TFile): Promise<void> {
-    const folderPath = this.settings.targetFolder;
-    if (!folderPath) {
-      await this.smartUpdateView();
-      return;
+    // 检查文件是否在任何设定库中
+    let folderPath: string | null = null;
+    for (const mapping of this.settings.folderMappings) {
+      if (mapping.settingFolder && file.path.startsWith(mapping.settingFolder + "/")) {
+        folderPath = mapping.settingFolder;
+        break;
+      }
     }
 
-    // 检查文件是否在目标文件夹内
-    if (!file.path.startsWith(folderPath + "/")) {
+    if (!folderPath) {
+      await this.smartUpdateView();
       return;
     }
 
@@ -234,17 +277,31 @@ export default class ChineseWriterPlugin extends Plugin {
    * 文件重命名时同步 order.json
    */
   private async syncOrderOnFileRename(file: TFile, oldPath: string): Promise<void> {
-    const folderPath = this.settings.targetFolder;
-    if (!folderPath) {
+    // 检查文件是否在任何设定库中
+    let folderPath: string | null = null;
+    let wasInFolder = false;
+    let isInFolder = false;
+
+    for (const mapping of this.settings.folderMappings) {
+      if (mapping.settingFolder) {
+        if (oldPath.startsWith(mapping.settingFolder + "/")) {
+          wasInFolder = true;
+          folderPath = mapping.settingFolder;
+        }
+        if (file.path.startsWith(mapping.settingFolder + "/")) {
+          isInFolder = true;
+          folderPath = mapping.settingFolder;
+        }
+      }
+    }
+
+    if (!wasInFolder && !isInFolder) {
       await this.smartUpdateView();
       return;
     }
 
-    // 检查文件是否在目标文件夹内
-    const wasInFolder = oldPath.startsWith(folderPath + "/");
-    const isInFolder = file.path.startsWith(folderPath + "/");
-
-    if (!wasInFolder && !isInFolder) {
+    if (!folderPath) {
+      await this.smartUpdateView();
       return;
     }
 
