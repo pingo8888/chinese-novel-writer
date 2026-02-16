@@ -25,7 +25,7 @@
 
 /* 关键字高亮默认样式（会被动态样式覆盖） */
 .chinese-writer-highlight {
-  background-color: #FFFFF00;
+  background-color: #FFFFFF00;
   border-bottom: 2px dotted #4A86E9;
   color: #4A86E9;
   padding-bottom: 2px;
