@@ -26,9 +26,22 @@
 /* 关键字高亮默认样式（会被动态样式覆盖） */
 .chinese-writer-highlight {
   background-color: #FFFFFF00;
-  border-bottom: 2px dotted #4A86E9;
+  text-decoration-line: underline !important;
+  text-decoration-style: dotted !important;
+  text-decoration-color: #4A86E9 !important;
+  text-decoration-thickness: 2px !important;
+  text-underline-offset: 8px !important;
+  text-decoration-skip-ink: none !important;
   color: #4A86E9;
-  padding-bottom: 2px;
+}
+
+.chinese-writer-punctuation-warning {
+  text-decoration-line: underline !important;
+  text-decoration-style: dashed !important;
+  text-decoration-color: #e53935 !important;
+  text-decoration-thickness: 1.5px !important;
+  text-underline-offset: 4px !important;
+  text-decoration-skip-ink: none !important;
 }
 
 /* 高亮悬停预览 */

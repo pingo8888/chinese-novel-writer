@@ -592,6 +592,70 @@ export class HighlightManager {
   }
 
   /**
+   * 收集需要标记的常见标点位置
+   */
+  private collectPunctuationWarnings(text: string): number[] {
+    const config = this.plugin.settings.punctuationCheck;
+    if (!config?.enabled) {
+      return [];
+    }
+
+    const warningIndexes = new Set<number>();
+
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (config.comma && ch === ",") warningIndexes.add(i);
+      if (config.period && ch === ".") warningIndexes.add(i);
+      if (config.colon && ch === ":") warningIndexes.add(i);
+      if (config.semicolon && ch === ";") warningIndexes.add(i);
+      if (config.exclamation && ch === "!") warningIndexes.add(i);
+      if (config.question && ch === "?") warningIndexes.add(i);
+      if (config.doubleQuote && ch === "\"") warningIndexes.add(i);
+      if (config.singleQuote && ch === "'") warningIndexes.add(i);
+    }
+
+    if (config.doubleQuote) {
+      const openDoubleQuoteIndexes: number[] = [];
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (ch === "“") {
+          openDoubleQuoteIndexes.push(i);
+        } else if (ch === "”") {
+          if (openDoubleQuoteIndexes.length > 0) {
+            openDoubleQuoteIndexes.pop();
+          } else {
+            warningIndexes.add(i);
+          }
+        }
+      }
+      for (const index of openDoubleQuoteIndexes) {
+        warningIndexes.add(index);
+      }
+    }
+
+    if (config.singleQuote) {
+      const openSingleQuoteIndexes: number[] = [];
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (ch === "‘") {
+          openSingleQuoteIndexes.push(i);
+        } else if (ch === "’") {
+          if (openSingleQuoteIndexes.length > 0) {
+            openSingleQuoteIndexes.pop();
+          } else {
+            warningIndexes.add(i);
+          }
+        }
+      }
+      for (const index of openSingleQuoteIndexes) {
+        warningIndexes.add(index);
+      }
+    }
+
+    return Array.from(warningIndexes).sort((a, b) => a - b);
+  }
+
+  /**
    * 创建编辑器扩展
    */
   createEditorExtension() {
@@ -629,11 +693,6 @@ export class HighlightManager {
 
           // 提取关键字
           const keywords = await manager.extractKeywordsFromSettingFolder(settingFolder);
-
-          if (keywords.size === 0) {
-            this.decorations = Decoration.none;
-            return;
-          }
 
           // 创建装饰器
           const builder = new RangeSetBuilder<Decoration>();
@@ -695,6 +754,18 @@ export class HighlightManager {
             );
           }
 
+          // 标点检测装饰器（仅在开启且当前文件属于已配置小说库时生效）
+          const punctuationWarnings = manager.collectPunctuationWarnings(text);
+          for (const index of punctuationWarnings) {
+            builder.add(
+              index,
+              index + 1,
+              Decoration.mark({
+                class: "chinese-writer-punctuation-warning",
+              })
+            );
+          }
+
           this.decorations = builder.finish();
 
           // 异步计算完成后主动触发一次轻量事务，立即重绘装饰器
@@ -726,6 +797,7 @@ export class HighlightManager {
    */
   updateStyles(): void {
     const style = this.plugin.settings.highlightStyle;
+    const decorationLine = style.borderWidth > 0 ? "underline" : "none";
 
     // 移除旧的样式
     const oldStyle = document.getElementById("chinese-writer-highlight-style");
@@ -739,11 +811,15 @@ export class HighlightManager {
     styleEl.textContent = `
       .chinese-writer-highlight {
         background-color: ${style.backgroundColor};
-        border-bottom: ${style.borderWidth}px ${style.borderStyle} ${style.borderColor};
+        text-decoration-line: ${decorationLine} !important;
+        text-decoration-style: ${style.borderStyle} !important;
+        text-decoration-color: ${style.borderColor} !important;
+        text-decoration-thickness: ${style.borderWidth}px !important;
+        text-underline-offset: 8px !important;
+        text-decoration-skip-ink: none !important;
         font-weight: ${style.fontWeight};
         font-style: ${style.fontStyle};
         color: ${style.color};
-        padding-bottom: 2px;
       }
     `;
     document.head.appendChild(styleEl);

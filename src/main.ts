@@ -236,6 +236,20 @@ export default class ChineseWriterPlugin extends Plugin {
       );
     }
 
+    // 确保 punctuationCheck 的所有字段都有默认值（兼容旧版本）
+    if (this.settings.punctuationCheck) {
+      this.settings.punctuationCheck = Object.assign(
+        {},
+        DEFAULT_SETTINGS.punctuationCheck,
+        this.settings.punctuationCheck
+      );
+    } else {
+      this.settings.punctuationCheck = Object.assign(
+        {},
+        DEFAULT_SETTINGS.punctuationCheck
+      );
+    }
+
     // 兼容旧版本：openInCurrentTab -> openInNewTab（取反）
     const legacyOpenInCurrentTab = (data as { openInCurrentTab?: boolean } | null)?.openInCurrentTab;
     const hasOpenInNewTab = typeof (data as { openInNewTab?: boolean } | null)?.openInNewTab === "boolean";

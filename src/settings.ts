@@ -26,7 +26,7 @@ export interface HighlightStyle {
   mode: HighlightMode;
   /** 背景色 */
   backgroundColor: string;
-  /** 边框样式 (solid, dashed, dotted, double) */
+  /** 下划线样式 (solid, dashed, dotted, double, wavy) */
   borderStyle: string;
   /** 边框粗细 (px) */
   borderWidth: number;
@@ -53,6 +53,30 @@ export interface HighlightPreviewStyle {
 }
 
 /**
+ * 常见标点检测配置
+ */
+export interface PunctuationCheckSettings {
+  /** 总开关 */
+  enabled: boolean;
+  /** 英文逗号 , */
+  comma: boolean;
+  /** 英文句号 . */
+  period: boolean;
+  /** 英文冒号 : */
+  colon: boolean;
+  /** 英文分号 ; */
+  semicolon: boolean;
+  /** 英文感叹号 ! */
+  exclamation: boolean;
+  /** 英文问号 ? */
+  question: boolean;
+  /** 英文双引号 " 及中文双引号配对 */
+  doubleQuote: boolean;
+  /** 英文单引号 ' 及中文单引号配对 */
+  singleQuote: boolean;
+}
+
+/**
  * 插件设置接口
  */
 export interface ChineseWriterSettings {
@@ -62,6 +86,8 @@ export interface ChineseWriterSettings {
   highlightStyle: HighlightStyle;
   /** 高亮预览栏配置 */
   highlightPreviewStyle: HighlightPreviewStyle;
+  /** 常见标点检测配置 */
+  punctuationCheck: PunctuationCheckSettings;
   /** 通过插件功能打开/新建文件时是否在新标签页打开 */
   openInNewTab: boolean;
 }
@@ -86,6 +112,17 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
     height: 340,
     maxBodyLines: 12,
   },
+  punctuationCheck: {
+    enabled: false,
+    comma: true,
+    period: true,
+    colon: true,
+    semicolon: true,
+    exclamation: true,
+    question: true,
+    doubleQuote: true,
+    singleQuote: true,
+  },
   openInNewTab: true,
 };
 
@@ -103,6 +140,16 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
 
   display(): void {
     const { containerEl } = this;
+    const saveAndRefreshPunctuation = async () => {
+      await this.plugin.saveSettings();
+      this.refreshEditorHighlight();
+    };
+    const punctuationOptionToggles: Array<{ setDisabled: (disabled: boolean) => unknown }> = [];
+    const setPunctuationOptionDisabled = (disabled: boolean) => {
+      for (const toggle of punctuationOptionToggles) {
+        toggle.setDisabled(disabled);
+      }
+    };
 
     containerEl.empty();
 
@@ -167,14 +214,15 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("边框样式")
-      .setDesc("高亮关键字的下边框样式")
+      .setName("下划线样式")
+      .setDesc("高亮关键字的下划线样式")
       .addDropdown((dropdown) =>
         dropdown
           .addOption("solid", "实线")
           .addOption("dashed", "虚线")
           .addOption("dotted", "点线")
           .addOption("double", "双线")
+          .addOption("wavy", "波浪线")
           .setValue(this.plugin.settings.highlightStyle.borderStyle)
           .onChange(async (value) => {
             this.plugin.settings.highlightStyle.borderStyle = value;
@@ -184,8 +232,8 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("边框粗细")
-      .setDesc("高亮关键字的下边框粗细（0-10像素）")
+      .setName("下划线粗细")
+      .setDesc("高亮关键字的下划线粗细（0-10像素）")
       .addSlider((slider) =>
         slider
           .setLimits(0, 10, 1)
@@ -199,8 +247,8 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("边框颜色")
-      .setDesc("高亮关键字的下边框颜色")
+      .setName("下划线颜色")
+      .setDesc("高亮关键字的下划线颜色")
       .addText((text) =>
         text
           .setPlaceholder("#4A86E9")
@@ -255,6 +303,128 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
             this.updateHighlightStyles();
           })
       );
+
+    // 常见标点检测设置
+    containerEl.createEl("h3", { text: "常见标点检测" });
+
+    new Setting(containerEl)
+      .setName("启用常见标点检测")
+      .setDesc("仅在已配置小说库中的 Markdown 文件内进行检测")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.punctuationCheck.enabled)
+          .onChange(async (value) => {
+            this.plugin.settings.punctuationCheck.enabled = value;
+            await saveAndRefreshPunctuation();
+            setPunctuationOptionDisabled(!value);
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("检测英文逗号（,）")
+      .addToggle((toggle) => {
+        punctuationOptionToggles.push(toggle);
+        toggle
+          .setValue(this.plugin.settings.punctuationCheck.comma)
+          .setDisabled(!this.plugin.settings.punctuationCheck.enabled)
+          .onChange(async (value) => {
+            this.plugin.settings.punctuationCheck.comma = value;
+            await saveAndRefreshPunctuation();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("检测英文句号（.）")
+      .addToggle((toggle) => {
+        punctuationOptionToggles.push(toggle);
+        toggle
+          .setValue(this.plugin.settings.punctuationCheck.period)
+          .setDisabled(!this.plugin.settings.punctuationCheck.enabled)
+          .onChange(async (value) => {
+            this.plugin.settings.punctuationCheck.period = value;
+            await saveAndRefreshPunctuation();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("检测英文冒号（:）")
+      .addToggle((toggle) => {
+        punctuationOptionToggles.push(toggle);
+        toggle
+          .setValue(this.plugin.settings.punctuationCheck.colon)
+          .setDisabled(!this.plugin.settings.punctuationCheck.enabled)
+          .onChange(async (value) => {
+            this.plugin.settings.punctuationCheck.colon = value;
+            await saveAndRefreshPunctuation();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("检测英文分号（;）")
+      .addToggle((toggle) => {
+        punctuationOptionToggles.push(toggle);
+        toggle
+          .setValue(this.plugin.settings.punctuationCheck.semicolon)
+          .setDisabled(!this.plugin.settings.punctuationCheck.enabled)
+          .onChange(async (value) => {
+            this.plugin.settings.punctuationCheck.semicolon = value;
+            await saveAndRefreshPunctuation();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("检测英文感叹号（!）")
+      .addToggle((toggle) => {
+        punctuationOptionToggles.push(toggle);
+        toggle
+          .setValue(this.plugin.settings.punctuationCheck.exclamation)
+          .setDisabled(!this.plugin.settings.punctuationCheck.enabled)
+          .onChange(async (value) => {
+            this.plugin.settings.punctuationCheck.exclamation = value;
+            await saveAndRefreshPunctuation();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("检测英文问号（?）")
+      .addToggle((toggle) => {
+        punctuationOptionToggles.push(toggle);
+        toggle
+          .setValue(this.plugin.settings.punctuationCheck.question)
+          .setDisabled(!this.plugin.settings.punctuationCheck.enabled)
+          .onChange(async (value) => {
+            this.plugin.settings.punctuationCheck.question = value;
+            await saveAndRefreshPunctuation();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("检测双引号")
+      .setDesc("检测英文双引号（\"）与中文双引号（“”）配对错误")
+      .addToggle((toggle) => {
+        punctuationOptionToggles.push(toggle);
+        toggle
+          .setValue(this.plugin.settings.punctuationCheck.doubleQuote)
+          .setDisabled(!this.plugin.settings.punctuationCheck.enabled)
+          .onChange(async (value) => {
+            this.plugin.settings.punctuationCheck.doubleQuote = value;
+            await saveAndRefreshPunctuation();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("检测单引号")
+      .setDesc("检测英文单引号（'）与中文单引号（‘’）配对错误")
+      .addToggle((toggle) => {
+        punctuationOptionToggles.push(toggle);
+        toggle
+          .setValue(this.plugin.settings.punctuationCheck.singleQuote)
+          .setDisabled(!this.plugin.settings.punctuationCheck.enabled)
+          .onChange(async (value) => {
+            this.plugin.settings.punctuationCheck.singleQuote = value;
+            await saveAndRefreshPunctuation();
+          });
+      });
 
     // 高亮预览栏设置
     containerEl.createEl("h3", { text: "高亮悬停预览" });
