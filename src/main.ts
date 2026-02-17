@@ -61,7 +61,7 @@ export default class ChineseWriterPlugin extends Plugin {
     });
 
     // 添加功能区图标
-    this.addRibbonIcon("book-open", "中文写作", () => {
+    this.addRibbonIcon("book-type", "中文写作", () => {
       this.activateView();
     });
 

@@ -29,7 +29,7 @@ export class TreeView extends ItemView {
   }
 
   getIcon(): string {
-    return "book-open";
+    return "book-type";
   }
 
   async onOpen(): Promise<void> {
@@ -73,7 +73,7 @@ export class TreeView extends ItemView {
     // 标题栏中间：图标 + 目录名
     const titleEl = headerEl.createDiv({ cls: "chinese-writer-title" });
     const iconEl = titleEl.createSpan({ cls: "chinese-writer-icon" });
-    setIcon(iconEl, "folder");
+    setIcon(iconEl, "book-type");
 
     // 获取当前显示的文件夹路径
     const activeFile = this.getContextFile();
