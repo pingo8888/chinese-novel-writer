@@ -82,7 +82,7 @@ export class TreeView extends ItemView {
     if (activeFile) {
       const settingFolder = this.plugin.highlightManager.getSettingFolderForFile(activeFile.path);
       if (settingFolder) {
-        displayFolder = settingFolder;
+        displayFolder = this.getFolderDisplayName(settingFolder);
       }
     }
 
@@ -648,7 +648,16 @@ export class TreeView extends ItemView {
   private updateHeaderFolderName(container: HTMLElement): void {
     const folderNameEl = container.querySelector(".chinese-writer-folder-name") as HTMLElement | null;
     if (!folderNameEl) return;
-    folderNameEl.setText(this.currentSettingFolder ?? "未设置目录");
+    folderNameEl.setText(this.getFolderDisplayName(this.currentSettingFolder));
+  }
+
+  private getFolderDisplayName(folderPath: string | null | undefined): string {
+    if (!folderPath) return "未设置目录";
+    const segments = folderPath
+      .split(/[\\/]/)
+      .map((segment) => segment.trim())
+      .filter((segment) => segment.length > 0);
+    return segments[segments.length - 1] ?? "未设置目录";
   }
 
   private async persistExpandedStatesForCurrentFolder(
@@ -1096,7 +1105,17 @@ export class TreeView extends ItemView {
    * 添加 H1 级别的右键菜单（用于文件节点）
    */
   private addH1ContextMenu(menu: Menu, node: TreeNode): void {
-    // 1. 创建分类
+    // 1. 创建集合
+    menu.addItem((item) => {
+      item
+        .setTitle("创建集合")
+        .setIcon("file-text")
+        .onClick(async () => {
+          await this.createFile();
+        });
+    });
+
+    // 2. 创建分类
     menu.addItem((item) => {
       item
         .setTitle("创建分类")
@@ -1106,17 +1125,10 @@ export class TreeView extends ItemView {
         });
     });
 
-    // 2. 创建集合
-    menu.addItem((item) => {
-      item
-        .setTitle("创建集合")
-        .setIcon("file-plus")
-        .onClick(async () => {
-          await this.createFile();
-        });
-    });
+    // 3. 分割线
+    menu.addSeparator();
 
-    // 3. 重命名集合
+    // 4. 重命名集合
     menu.addItem((item) => {
       item
         .setTitle("重命名集合")
@@ -1126,14 +1138,12 @@ export class TreeView extends ItemView {
         });
     });
 
-    // 4. 分割线
-    menu.addSeparator();
-
-    // 5. 删除集合
+    // 5. 删除（原删除集合）
     menu.addItem((item) => {
       item
         .setTitle("删除集合")
         .setIcon("trash")
+        .setWarning(true)
         .onClick(async () => {
           await this.deleteFile(node);
         });
@@ -1147,17 +1157,7 @@ export class TreeView extends ItemView {
     // 获取父文件节点
     const fileNode = this.findParentFileNode(node);
 
-    // 1. 创建设定
-    menu.addItem((item) => {
-      item
-        .setTitle("创建设定")
-        .setIcon("heading-2")
-        .onClick(async () => {
-          await this.createH2(node);
-        });
-    });
-
-    // 2. 创建分类
+    // 1. 创建分类
     if (fileNode) {
       menu.addItem((item) => {
         item
@@ -1169,7 +1169,20 @@ export class TreeView extends ItemView {
       });
     }
 
-    // 3. 重命名分类
+    // 2. 创建设定
+    menu.addItem((item) => {
+      item
+        .setTitle("创建设定")
+        .setIcon("heading-2")
+        .onClick(async () => {
+          await this.createH2(node);
+        });
+    });
+
+    // 3. 分割线
+    menu.addSeparator();
+
+    // 4. 重命名分类
     menu.addItem((item) => {
       item
         .setTitle("重命名分类")
@@ -1179,14 +1192,12 @@ export class TreeView extends ItemView {
         });
     });
 
-    // 4. 分割线
-    menu.addSeparator();
-
     // 5. 删除分类
     menu.addItem((item) => {
       item
         .setTitle("删除分类")
         .setIcon("trash")
+        .setWarning(true)
         .onClick(async () => {
           await this.deleteH1(node);
         });
@@ -1222,7 +1233,10 @@ export class TreeView extends ItemView {
         });
     });
 
-    // 3. 重命名设定
+    // 3. 分割线
+    menu.addSeparator();
+
+    // 4. 重命名设定
     menu.addItem((item) => {
       item
         .setTitle("重命名设定")
@@ -1232,14 +1246,12 @@ export class TreeView extends ItemView {
         });
     });
 
-    // 4. 分割线
-    menu.addSeparator();
-
     // 5. 删除设定
     menu.addItem((item) => {
       item
         .setTitle("删除设定")
         .setIcon("trash")
+        .setWarning(true)
         .onClick(async () => {
           await this.deleteH2(node);
         });

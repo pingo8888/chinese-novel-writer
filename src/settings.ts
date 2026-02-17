@@ -99,7 +99,7 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
   folderMappings: [],
   highlightStyle: {
     mode: "all",
-    backgroundColor: "#FFFF00",
+    backgroundColor: "#FFFFFF00",
     borderStyle: "dotted",
     borderWidth: 2,
     borderColor: "#4A86E9",
@@ -108,7 +108,7 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
     color: "#4A86E9"
   },
   highlightPreviewStyle: {
-    width: 380,
+    width: 300,
     height: 340,
     maxBodyLines: 12,
   },
@@ -201,10 +201,10 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("背景色")
-      .setDesc("高亮关键字的背景颜色（支持8位HEX，如 #FFFF00FF，最后两位为透明度）")
+      .setDesc("高亮关键字的背景颜色（支持8位HEX，如 #FFFFFF00，最后两位为透明度）")
       .addText((text) =>
         text
-          .setPlaceholder("#FFFF00")
+          .setPlaceholder("#FFFFFF00")
           .setValue(this.plugin.settings.highlightStyle.backgroundColor)
           .onChange(async (value) => {
             this.plugin.settings.highlightStyle.backgroundColor = value;
