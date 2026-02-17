@@ -1,4 +1,4 @@
-import { Plugin, TFile, MarkdownView } from "obsidian";
+import { Plugin, TFile, MarkdownView, WorkspaceLeaf } from "obsidian";
 import { ChineseWriterSettings, DEFAULT_SETTINGS, ChineseWriterSettingTab } from "./settings";
 import { FileParser } from "./parser";
 import { TreeView, VIEW_TYPE_TREE } from "./tree-view";
@@ -212,6 +212,13 @@ export default class ChineseWriterPlugin extends Plugin {
       );
     }
 
+    // 兼容旧版本：openInCurrentTab -> openInNewTab（取反）
+    const legacyOpenInCurrentTab = (data as { openInCurrentTab?: boolean } | null)?.openInCurrentTab;
+    const hasOpenInNewTab = typeof (data as { openInNewTab?: boolean } | null)?.openInNewTab === "boolean";
+    if (!hasOpenInNewTab && typeof legacyOpenInCurrentTab === "boolean") {
+      this.settings.openInNewTab = !legacyOpenInCurrentTab;
+    }
+
     // 迁移旧的 targetFolder 配置（如果存在）
     if (data && data.targetFolder && this.settings.folderMappings.length === 0) {
       // 将旧的 targetFolder 转换为一个空的对应关系（仅设定库）
@@ -225,6 +232,64 @@ export default class ChineseWriterPlugin extends Plugin {
    */
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+
+  /**
+   * 按设置打开文件：
+   * - 在当前标签页打开
+   * - 或在新标签页打开
+   * - 若文件已在某标签打开，则复用现有标签
+   */
+  async openFileWithSettings(
+    file: TFile,
+    options?: { revealWhenNewTab?: boolean }
+  ): Promise<WorkspaceLeaf | null> {
+    const openInNewTab = this.settings.openInNewTab;
+    const revealWhenNewTab = options?.revealWhenNewTab ?? false;
+
+    const existingLeaf = this.findOpenedLeafForFile(file.path);
+    if (existingLeaf) {
+      if (!openInNewTab || revealWhenNewTab) {
+        this.app.workspace.revealLeaf(existingLeaf);
+      }
+      return existingLeaf;
+    }
+
+    if (!openInNewTab) {
+      const targetLeaf = this.getPreferredCurrentLeaf();
+      if (!targetLeaf) return null;
+      await targetLeaf.openFile(file, { active: true });
+      return targetLeaf;
+    }
+
+    const targetLeaf = this.app.workspace.getLeaf("tab");
+    await targetLeaf.openFile(file, { active: revealWhenNewTab });
+    return targetLeaf;
+  }
+
+  private getPreferredCurrentLeaf() {
+    const activeMarkdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (activeMarkdownView) {
+      return activeMarkdownView.leaf;
+    }
+
+    const markdownLeaves = this.app.workspace.getLeavesOfType("markdown");
+    if (markdownLeaves.length > 0) {
+      return markdownLeaves[0];
+    }
+
+    return this.app.workspace.getMostRecentLeaf();
+  }
+
+  private findOpenedLeafForFile(filePath: string) {
+    const markdownLeaves = this.app.workspace.getLeavesOfType("markdown");
+    for (const leaf of markdownLeaves) {
+      const view = leaf.view;
+      if (view instanceof MarkdownView && view.file?.path === filePath) {
+        return leaf;
+      }
+    }
+    return null;
   }
 
   /**

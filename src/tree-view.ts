@@ -12,6 +12,7 @@ export class TreeView extends ItemView {
   plugin: ChineseWriterPlugin;
   private treeData: TreeNode[] = [];
   private allExpanded: boolean = false;
+  private lastObservedActiveFilePath: string | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: ChineseWriterPlugin) {
     super(leaf);
@@ -32,10 +33,16 @@ export class TreeView extends ItemView {
 
   async onOpen(): Promise<void> {
     await this.refresh();
+    this.lastObservedActiveFilePath = this.app.workspace.getActiveFile()?.path ?? null;
 
     // 监听活动文件变化
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", async () => {
+        const currentPath = this.app.workspace.getActiveFile()?.path ?? null;
+        if (currentPath === this.lastObservedActiveFilePath) {
+          return;
+        }
+        this.lastObservedActiveFilePath = currentPath;
         await this.smartUpdate();
       })
     );
@@ -240,8 +247,13 @@ export class TreeView extends ItemView {
       }
     }
 
-    // 应用文件排序
-    const fileOrder = this.plugin.orderManager.getFileOrder();
+    // 应用文件排序；若 order.json 为空，按当前树顺序初始化一次
+    let fileOrder = this.plugin.orderManager.getFileOrder();
+    if (fileOrder.length === 0 && parseResults.length > 0) {
+      fileOrder = parseResults.map((item) => item.filePath);
+      await this.plugin.orderManager.setFileOrder(fileOrder);
+    }
+
     if (fileOrder.length > 0) {
       parseResults.sort((a, b) => {
         const indexA = fileOrder.indexOf(a.filePath);
@@ -1181,8 +1193,9 @@ export class TreeView extends ItemView {
           return;
         }
 
-        // 创建新文件
-        await this.app.vault.create(filePath, "");
+        // 创建新文件，并按设置决定打开位置
+        const createdFile = await this.app.vault.create(filePath, "");
+        await this.plugin.openFileWithSettings(createdFile);
 
         // 更新 order.json
         let fileOrder = this.plugin.orderManager.getFileOrder();

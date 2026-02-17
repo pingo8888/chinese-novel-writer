@@ -26,6 +26,8 @@ export class HighlightManager {
   private previewEl: HTMLElement | null = null;
   private previewHoverKey = "";
   private currentPreviewData: KeywordPreviewData | null = null;
+  private previewHideTimer: number | null = null;
+  private readonly previewHideDelayMs = 450;
 
   constructor(plugin: ChineseWriterPlugin) {
     this.plugin = plugin;
@@ -213,6 +215,13 @@ export class HighlightManager {
     this.previewEl.style.display = "none";
     document.body.appendChild(this.previewEl);
 
+    this.plugin.registerDomEvent(this.previewEl, "mouseenter", () => {
+      this.clearScheduledHidePreview();
+    });
+    this.plugin.registerDomEvent(this.previewEl, "mouseleave", () => {
+      this.scheduleHidePreview();
+    });
+
     this.plugin.registerDomEvent(document, "mousemove", (event: MouseEvent) => {
       this.handlePreviewHover(event);
     });
@@ -228,10 +237,11 @@ export class HighlightManager {
         this.hidePreview();
       }
     });
-    this.plugin.registerDomEvent(document, "mouseleave", () => this.hidePreview());
+    this.plugin.registerDomEvent(document, "mouseleave", () => this.scheduleHidePreview(120));
   }
 
   private destroyHoverPreview(): void {
+    this.clearScheduledHidePreview();
     if (this.previewEl) {
       this.previewEl.remove();
       this.previewEl = null;
@@ -241,34 +251,36 @@ export class HighlightManager {
   private handlePreviewHover(event: MouseEvent): void {
     const target = event.target as HTMLElement | null;
     if (!target) {
-      this.hidePreview();
+      this.scheduleHidePreview();
       return;
     }
 
     const inPreview = this.previewEl?.contains(target) ?? false;
     if (inPreview) {
+      this.clearScheduledHidePreview();
       return;
     }
 
     const highlightEl = target.closest(".chinese-writer-highlight") as HTMLElement | null;
     if (!highlightEl) {
-      this.hidePreview();
+      this.scheduleHidePreview();
       return;
     }
 
     const keyword = highlightEl.dataset.cwKeyword;
     const settingFolder = highlightEl.dataset.cwSettingFolder;
     if (!keyword || !settingFolder) {
-      this.hidePreview();
+      this.scheduleHidePreview();
       return;
     }
 
     const previewData = this.getKeywordPreview(settingFolder, keyword);
     if (!previewData) {
-      this.hidePreview();
+      this.scheduleHidePreview();
       return;
     }
 
+    this.clearScheduledHidePreview();
     const hoverKey = `${settingFolder}::${keyword}`;
     this.showPreview(previewData, hoverKey, event.clientX, event.clientY);
   }
@@ -280,8 +292,9 @@ export class HighlightManager {
     mouseY: number
   ): void {
     if (!this.previewEl) return;
+    const isNewHover = this.previewHoverKey !== hoverKey;
 
-    if (this.previewHoverKey !== hoverKey) {
+    if (isNewHover) {
       this.previewEl.empty();
 
       const headerEl = this.previewEl.createDiv({ cls: "cw-preview-header" });
@@ -347,29 +360,62 @@ export class HighlightManager {
     this.previewEl.style.width = `${previewStyle.width}px`;
     this.previewEl.style.maxHeight = `${previewStyle.height}px`;
     this.previewEl.style.setProperty("--cw-preview-max-lines", String(previewStyle.maxBodyLines));
-    this.previewEl.style.display = "block";
+    this.previewEl.style.display = "flex";
+    this.applyBodyMaxHeight(previewStyle.height, previewStyle.maxBodyLines);
 
-    const offset = 14;
-    let left = mouseX + offset;
-    let top = mouseY + offset;
-    const rect = this.previewEl.getBoundingClientRect();
+    // 预览栏只在首次出现时定位，避免跟随鼠标不断抖动
+    if (isNewHover) {
+      const offset = 14;
+      let left = mouseX + offset;
+      let top = mouseY + offset;
+      const rect = this.previewEl.getBoundingClientRect();
 
-    if (left + rect.width > window.innerWidth - 8) {
-      left = Math.max(8, mouseX - rect.width - offset);
+      if (left + rect.width > window.innerWidth - 8) {
+        left = Math.max(8, mouseX - rect.width - offset);
+      }
+      if (top + rect.height > window.innerHeight - 8) {
+        top = Math.max(8, mouseY - rect.height - offset);
+      }
+
+      this.previewEl.style.left = `${left}px`;
+      this.previewEl.style.top = `${top}px`;
     }
-    if (top + rect.height > window.innerHeight - 8) {
-      top = Math.max(8, mouseY - rect.height - offset);
-    }
-
-    this.previewEl.style.left = `${left}px`;
-    this.previewEl.style.top = `${top}px`;
   }
 
   private hidePreview(): void {
+    this.clearScheduledHidePreview();
     if (!this.previewEl) return;
     this.previewEl.style.display = "none";
     this.previewHoverKey = "";
     this.currentPreviewData = null;
+  }
+
+  private scheduleHidePreview(delayMs = this.previewHideDelayMs): void {
+    this.clearScheduledHidePreview();
+    this.previewHideTimer = window.setTimeout(() => {
+      this.hidePreview();
+    }, delayMs);
+  }
+
+  private clearScheduledHidePreview(): void {
+    if (this.previewHideTimer !== null) {
+      window.clearTimeout(this.previewHideTimer);
+      this.previewHideTimer = null;
+    }
+  }
+
+  private applyBodyMaxHeight(previewHeightPx: number, maxBodyLines: number): void {
+    if (!this.previewEl) return;
+    const bodyEl = this.previewEl.querySelector(".cw-preview-body") as HTMLElement | null;
+    if (!bodyEl) return;
+
+    const approxLineHeightPx = 21;
+    const desiredBodyHeight = Math.max(40, maxBodyLines * approxLineHeightPx);
+    const nonBodyHeight = Math.max(0, this.previewEl.offsetHeight - bodyEl.offsetHeight);
+    const availableBodyHeight = Math.max(40, previewHeightPx - nonBodyHeight - 4);
+    const finalMaxBodyHeight = Math.min(desiredBodyHeight, availableBodyHeight);
+
+    bodyEl.style.maxHeight = `${finalMaxBodyHeight}px`;
   }
 
   private async openGlobalSearch(keyword: string): Promise<void> {
@@ -409,14 +455,13 @@ export class HighlightManager {
     const lines = content.split("\n");
     const targetLine = this.findFirstContentLine(lines, previewData.h1Title, previewData.h2Title);
 
-    const leaf = this.app.workspace.getMostRecentLeaf();
-    if (!leaf) return;
+    const targetLeaf = await this.plugin.openFileWithSettings(abstractFile, { revealWhenNewTab: true });
+    if (!targetLeaf) return;
 
-    await leaf.openFile(abstractFile);
-    const openedView = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (!openedView?.editor) return;
+    const targetView = targetLeaf.view instanceof MarkdownView ? targetLeaf.view : null;
+    if (!targetView?.editor) return;
 
-    openedView.editor.setCursor({ line: targetLine, ch: 0 });
+    targetView.editor.setCursor({ line: targetLine, ch: 0 });
     this.hidePreview();
   }
 

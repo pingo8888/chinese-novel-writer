@@ -62,6 +62,8 @@ export interface ChineseWriterSettings {
   highlightStyle: HighlightStyle;
   /** 高亮预览栏配置 */
   highlightPreviewStyle: HighlightPreviewStyle;
+  /** 通过插件功能打开/新建文件时是否在新标签页打开 */
+  openInNewTab: boolean;
 }
 
 /**
@@ -84,6 +86,7 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
     height: 340,
     maxBodyLines: 12,
   },
+  openInNewTab: true,
 };
 
 /**
@@ -261,7 +264,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       .setDesc("悬停预览栏宽度（像素）")
       .addSlider((slider) =>
         slider
-          .setLimits(240, 720, 10)
+          .setLimits(240, 720, 20)
           .setValue(this.plugin.settings.highlightPreviewStyle.width)
           .setDynamicTooltip()
           .onChange(async (value) => {
@@ -275,7 +278,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       .setDesc("悬停预览栏最大高度（像素）")
       .addSlider((slider) =>
         slider
-          .setLimits(160, 800, 10)
+          .setLimits(160, 800, 20)
           .setValue(this.plugin.settings.highlightPreviewStyle.height)
           .setDynamicTooltip()
           .onChange(async (value) => {
@@ -294,6 +297,21 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           .setDynamicTooltip()
           .onChange(async (value) => {
             this.plugin.settings.highlightPreviewStyle.maxBodyLines = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // 文件打开行为设置
+    containerEl.createEl("h3", { text: "文件打开行为" });
+
+    new Setting(containerEl)
+      .setName("在新标签页打开")
+      .setDesc("通过插件内相关功能打开或新建文件时，是否在新标签页打开（已打开则复用现有标签）")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.openInNewTab)
+          .onChange(async (value) => {
+            this.plugin.settings.openInNewTab = value;
             await this.plugin.saveSettings();
           })
       );
