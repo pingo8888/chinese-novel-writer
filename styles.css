@@ -420,6 +420,11 @@
   color: var(--text-muted);
 }
 
+.tree-item-h2-dead {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
 /* H2 数量统计 */
 .tree-item-count {
   margin-left: auto;

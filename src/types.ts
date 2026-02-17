@@ -14,6 +14,8 @@ export interface TreeNode {
   expanded: boolean;
   /** 原始内容（仅 h2 节点有内容） */
   content?: string[];
+  /** 状态（仅 h2 节点使用） */
+  status?: string;
   /** 文件路径（仅 file 节点有） */
   filePath?: string;
 }

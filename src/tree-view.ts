@@ -318,6 +318,7 @@ export class TreeView extends ItemView {
 
       // 直接使用文件中的 H2 顺序（不需要排序）
       h1.h2List.forEach((h2, h2Index) => {
+        const status = this.extractStatusFromLines(h2.content);
         const h2Node: TreeNode = {
           id: `${h1Node.id}-h2-${h2Index}`,
           text: h2.text,
@@ -325,6 +326,7 @@ export class TreeView extends ItemView {
           children: [],
           expanded: false,
           content: h2.content,
+          status,
         };
 
         h1Node.children.push(h2Node);
@@ -427,6 +429,9 @@ export class TreeView extends ItemView {
       text: node.text,
       cls: `tree-item-text tree-item-${node.type}`,
     });
+    if (node.type === "h2" && this.isDeadStatus(node.status)) {
+      textEl.addClass("tree-item-h2-dead");
+    }
 
     // H2 数量统计（仅在文件和 H1 节点显示）
     if (node.type === "file" || node.type === "h1") {
@@ -621,6 +626,23 @@ export class TreeView extends ItemView {
     }
 
     return null;
+  }
+
+  private extractStatusFromLines(lines: string[]): string {
+    const statusTag = "【状态】";
+    for (const line of lines) {
+      const tagIndex = line.indexOf(statusTag);
+      if (tagIndex === -1) continue;
+      const rawStatus = line.slice(tagIndex + statusTag.length).trim();
+      if (rawStatus) return rawStatus;
+    }
+    return "";
+  }
+
+  private isDeadStatus(status: string | undefined): boolean {
+    if (!status) return false;
+    const normalized = status.trim();
+    return normalized === "死亡" || normalized === "失效";
   }
 
   private updateHeaderFolderName(container: HTMLElement): void {
