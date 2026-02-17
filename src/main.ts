@@ -198,6 +198,20 @@ export default class ChineseWriterPlugin extends Plugin {
       );
     }
 
+    // 确保 highlightPreviewStyle 的所有字段都有默认值（兼容旧版本）
+    if (this.settings.highlightPreviewStyle) {
+      this.settings.highlightPreviewStyle = Object.assign(
+        {},
+        DEFAULT_SETTINGS.highlightPreviewStyle,
+        this.settings.highlightPreviewStyle
+      );
+    } else {
+      this.settings.highlightPreviewStyle = Object.assign(
+        {},
+        DEFAULT_SETTINGS.highlightPreviewStyle
+      );
+    }
+
     // 迁移旧的 targetFolder 配置（如果存在）
     if (data && data.targetFolder && this.settings.folderMappings.length === 0) {
       // 将旧的 targetFolder 转换为一个空的对应关系（仅设定库）

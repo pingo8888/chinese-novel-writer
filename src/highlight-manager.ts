@@ -1,7 +1,17 @@
-import { App, TFile, MarkdownView, editorLivePreviewField } from "obsidian";
+import { App, TFile, MarkdownView, editorLivePreviewField, setIcon } from "obsidian";
 import type ChineseWriterPlugin from "./main";
 import { EditorView, Decoration, DecorationSet, ViewPlugin, ViewUpdate, PluginValue } from "@codemirror/view";
 import { RangeSetBuilder, Transaction } from "@codemirror/state";
+
+interface KeywordPreviewData {
+  keyword: string;
+  filePath: string;
+  fileName: string;
+  h1Title: string;
+  h2Title: string;
+  aliases: string[];
+  bodyLines: string[];
+}
 
 /**
  * 高亮管理器
@@ -11,11 +21,17 @@ export class HighlightManager {
   plugin: ChineseWriterPlugin;
   app: App;
   private keywordsCache: Map<string, Set<string>> = new Map();
+  private keywordPreviewCache: Map<string, Map<string, KeywordPreviewData>> = new Map();
   private keywordsVersion = 0;
+  private previewEl: HTMLElement | null = null;
+  private previewHoverKey = "";
+  private currentPreviewData: KeywordPreviewData | null = null;
 
   constructor(plugin: ChineseWriterPlugin) {
     this.plugin = plugin;
     this.app = plugin.app;
+    this.initializeHoverPreview();
+    this.plugin.register(() => this.destroyHoverPreview());
   }
 
   /**
@@ -43,11 +59,12 @@ export class HighlightManager {
    */
   async extractKeywordsFromSettingFolder(settingFolder: string): Promise<Set<string>> {
     // 检查缓存
-    if (this.keywordsCache.has(settingFolder)) {
+    if (this.keywordsCache.has(settingFolder) && this.keywordPreviewCache.has(settingFolder)) {
       return this.keywordsCache.get(settingFolder)!;
     }
 
     const keywords = new Set<string>();
+    const previewMap = new Map<string, KeywordPreviewData>();
 
     if (!settingFolder) {
       return keywords;
@@ -65,8 +82,22 @@ export class HighlightManager {
           // 遍历所有H2
           for (const h2 of h1.h2List) {
             // H2的文本就是关键字
-            if (h2.text.trim()) {
-              keywords.add(h2.text.trim());
+            const keyword = h2.text.trim();
+            if (keyword) {
+              keywords.add(keyword);
+
+              // 相同关键字只保留首个来源，保持展示稳定
+              if (!previewMap.has(keyword)) {
+                previewMap.set(keyword, {
+                  keyword,
+                  filePath: parseResult.filePath,
+                  fileName: parseResult.fileName,
+                  h1Title: h1.text,
+                  h2Title: h2.text,
+                  aliases: this.extractAliases(h2.content),
+                  bodyLines: this.extractBodyLines(h2.content),
+                });
+              }
             }
           }
         }
@@ -75,6 +106,7 @@ export class HighlightManager {
 
     // 缓存结果
     this.keywordsCache.set(settingFolder, keywords);
+    this.keywordPreviewCache.set(settingFolder, previewMap);
 
     return keywords;
   }
@@ -84,6 +116,7 @@ export class HighlightManager {
    */
   clearCache(): void {
     this.keywordsCache.clear();
+    this.keywordPreviewCache.clear();
     this.keywordsVersion++;
   }
 
@@ -136,6 +169,291 @@ export class HighlightManager {
     return null;
   }
 
+  private extractAliases(lines: string[]): string[] {
+    const aliases: string[] = [];
+
+    for (const line of lines) {
+      const aliasTag = "【别名】";
+      const aliasIndex = line.indexOf(aliasTag);
+      if (aliasIndex === -1) continue;
+
+      const rawValue = line.slice(aliasIndex + aliasTag.length).trim();
+      if (!rawValue) continue;
+
+      const parts = rawValue.split(/[，,]/);
+      for (const part of parts) {
+        const alias = part.trim();
+        if (alias) {
+          aliases.push(alias);
+        }
+      }
+    }
+
+    return [...new Set(aliases)];
+  }
+
+  private extractBodyLines(lines: string[]): string[] {
+    return lines
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .filter((line) => !/【[^】]+】/.test(line))
+      .map((line) => line.replace(/^[-*+]\s+/, "").trim())
+      .filter((line) => line.length > 0);
+  }
+
+  private getKeywordPreview(settingFolder: string, keyword: string): KeywordPreviewData | null {
+    const folderMap = this.keywordPreviewCache.get(settingFolder);
+    if (!folderMap) return null;
+    return folderMap.get(keyword) ?? null;
+  }
+
+  private initializeHoverPreview(): void {
+    this.previewEl = document.createElement("div");
+    this.previewEl.className = "chinese-writer-highlight-preview";
+    this.previewEl.style.display = "none";
+    document.body.appendChild(this.previewEl);
+
+    this.plugin.registerDomEvent(document, "mousemove", (event: MouseEvent) => {
+      this.handlePreviewHover(event);
+    });
+    this.plugin.registerDomEvent(document, "mousedown", (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) {
+        this.hidePreview();
+        return;
+      }
+      const inPreview = this.previewEl?.contains(target) ?? false;
+      const inHighlight = !!target.closest(".chinese-writer-highlight");
+      if (!inPreview && !inHighlight) {
+        this.hidePreview();
+      }
+    });
+    this.plugin.registerDomEvent(document, "mouseleave", () => this.hidePreview());
+  }
+
+  private destroyHoverPreview(): void {
+    if (this.previewEl) {
+      this.previewEl.remove();
+      this.previewEl = null;
+    }
+  }
+
+  private handlePreviewHover(event: MouseEvent): void {
+    const target = event.target as HTMLElement | null;
+    if (!target) {
+      this.hidePreview();
+      return;
+    }
+
+    const inPreview = this.previewEl?.contains(target) ?? false;
+    if (inPreview) {
+      return;
+    }
+
+    const highlightEl = target.closest(".chinese-writer-highlight") as HTMLElement | null;
+    if (!highlightEl) {
+      this.hidePreview();
+      return;
+    }
+
+    const keyword = highlightEl.dataset.cwKeyword;
+    const settingFolder = highlightEl.dataset.cwSettingFolder;
+    if (!keyword || !settingFolder) {
+      this.hidePreview();
+      return;
+    }
+
+    const previewData = this.getKeywordPreview(settingFolder, keyword);
+    if (!previewData) {
+      this.hidePreview();
+      return;
+    }
+
+    const hoverKey = `${settingFolder}::${keyword}`;
+    this.showPreview(previewData, hoverKey, event.clientX, event.clientY);
+  }
+
+  private showPreview(
+    previewData: KeywordPreviewData,
+    hoverKey: string,
+    mouseX: number,
+    mouseY: number
+  ): void {
+    if (!this.previewEl) return;
+
+    if (this.previewHoverKey !== hoverKey) {
+      this.previewEl.empty();
+
+      const headerEl = this.previewEl.createDiv({ cls: "cw-preview-header" });
+      const titleWrapEl = headerEl.createDiv({ cls: "cw-preview-header-main" });
+      const titleEl = titleWrapEl.createDiv({ cls: "cw-preview-title" });
+      titleEl.setText(previewData.keyword);
+
+      const locationEl = titleWrapEl.createDiv({ cls: "cw-preview-location" });
+      locationEl.setText(`${previewData.fileName}/${previewData.h1Title}`);
+
+      const actionsEl = headerEl.createDiv({ cls: "cw-preview-actions" });
+      const searchBtn = actionsEl.createEl("button", {
+        cls: "cw-preview-btn",
+        attr: { "aria-label": "搜索", title: "搜索" },
+      });
+      setIcon(searchBtn, "search");
+      searchBtn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        await this.openGlobalSearch(previewData.keyword);
+      });
+
+      const editBtn = actionsEl.createEl("button", {
+        cls: "cw-preview-btn",
+        attr: { "aria-label": "编辑", title: "编辑" },
+      });
+      setIcon(editBtn, "pen");
+      editBtn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        await this.openKeywordSource(previewData);
+      });
+
+      if (previewData.aliases.length > 0) {
+        const blankLineEl = this.previewEl.createDiv({ cls: "cw-preview-blank-line" });
+        blankLineEl.setText(" ");
+
+        const aliasLabelEl = this.previewEl.createDiv({ cls: "cw-preview-label" });
+        aliasLabelEl.setText("别名");
+
+        const aliasValueEl = this.previewEl.createDiv({ cls: "cw-preview-aliases" });
+        aliasValueEl.setText(previewData.aliases.join(" "));
+      }
+
+      this.previewEl.createDiv({ cls: "cw-preview-divider" });
+
+      const bodyContainer = this.previewEl.createDiv({ cls: "cw-preview-body" });
+      if (previewData.bodyLines.length === 0) {
+        bodyContainer.createDiv({ cls: "cw-preview-empty", text: "（无设定内容）" });
+      } else {
+        const bodyListEl = bodyContainer.createEl("ul", { cls: "cw-preview-list" });
+        for (const line of previewData.bodyLines) {
+          const lineEl = bodyListEl.createEl("li", { cls: "cw-preview-line" });
+          lineEl.setText(line);
+        }
+      }
+
+      this.previewHoverKey = hoverKey;
+      this.currentPreviewData = previewData;
+    }
+
+    const previewStyle = this.plugin.settings.highlightPreviewStyle;
+    this.previewEl.style.width = `${previewStyle.width}px`;
+    this.previewEl.style.maxHeight = `${previewStyle.height}px`;
+    this.previewEl.style.setProperty("--cw-preview-max-lines", String(previewStyle.maxBodyLines));
+    this.previewEl.style.display = "block";
+
+    const offset = 14;
+    let left = mouseX + offset;
+    let top = mouseY + offset;
+    const rect = this.previewEl.getBoundingClientRect();
+
+    if (left + rect.width > window.innerWidth - 8) {
+      left = Math.max(8, mouseX - rect.width - offset);
+    }
+    if (top + rect.height > window.innerHeight - 8) {
+      top = Math.max(8, mouseY - rect.height - offset);
+    }
+
+    this.previewEl.style.left = `${left}px`;
+    this.previewEl.style.top = `${top}px`;
+  }
+
+  private hidePreview(): void {
+    if (!this.previewEl) return;
+    this.previewEl.style.display = "none";
+    this.previewHoverKey = "";
+    this.currentPreviewData = null;
+  }
+
+  private async openGlobalSearch(keyword: string): Promise<void> {
+    const query = keyword.trim();
+    if (!query) return;
+
+    const commandManager = (this.app as unknown as {
+      commands?: { executeCommandById: (id: string) => boolean | Promise<boolean> };
+    }).commands;
+    if (commandManager) {
+      await commandManager.executeCommandById("global-search:open");
+    }
+
+    window.setTimeout(() => {
+      const searchLeaves = this.app.workspace.getLeavesOfType("search");
+      if (searchLeaves.length === 0) return;
+
+      const searchView = searchLeaves[0]?.view;
+      const container = searchView?.containerEl;
+      if (!container) return;
+
+      const input = container.querySelector("input") as HTMLInputElement | null;
+      if (!input) return;
+
+      input.value = query;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      input.focus();
+    }, 80);
+  }
+
+  private async openKeywordSource(previewData: KeywordPreviewData): Promise<void> {
+    const abstractFile = this.app.vault.getAbstractFileByPath(previewData.filePath);
+    if (!(abstractFile instanceof TFile)) return;
+
+    const content = await this.app.vault.read(abstractFile);
+    const lines = content.split("\n");
+    const targetLine = this.findFirstContentLine(lines, previewData.h1Title, previewData.h2Title);
+
+    const leaf = this.app.workspace.getMostRecentLeaf();
+    if (!leaf) return;
+
+    await leaf.openFile(abstractFile);
+    const openedView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!openedView?.editor) return;
+
+    openedView.editor.setCursor({ line: targetLine, ch: 0 });
+    this.hidePreview();
+  }
+
+  private findFirstContentLine(lines: string[], h1Title: string, h2Title: string): number {
+    let inTargetH1 = false;
+    let inTargetH2 = false;
+    let h2Line = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i]?.trim() ?? "";
+
+      if (trimmed.startsWith("# ") && !trimmed.startsWith("## ")) {
+        inTargetH1 = trimmed.slice(2).trim() === h1Title;
+        inTargetH2 = false;
+        continue;
+      }
+
+      if (inTargetH1 && trimmed.startsWith("## ") && !trimmed.startsWith("### ")) {
+        const currentH2 = trimmed.slice(3).trim();
+        inTargetH2 = currentH2 === h2Title;
+        if (inTargetH2) {
+          h2Line = i;
+        }
+        continue;
+      }
+
+      if (inTargetH2) {
+        if (trimmed.startsWith("#")) break;
+        if (trimmed.length > 0) {
+          return i;
+        }
+      }
+    }
+
+    return h2Line;
+  }
+
   /**
    * 创建编辑器扩展
    */
@@ -186,7 +504,7 @@ export class HighlightManager {
           const text = doc.toString();
 
           // 收集所有匹配位置
-          const matches: { from: number; to: number }[] = [];
+          const matches: { from: number; to: number; keyword: string }[] = [];
 
           // 获取高亮模式
           const highlightMode = manager.plugin.settings.highlightStyle.mode;
@@ -207,7 +525,8 @@ export class HighlightManager {
 
               matches.push({
                 from: match.index,
-                to: match.index + keyword.length
+                to: match.index + keyword.length,
+                keyword,
               });
 
               foundFirst = true;
@@ -222,7 +541,11 @@ export class HighlightManager {
               match.from,
               match.to,
               Decoration.mark({
-                class: "chinese-writer-highlight"
+                class: "chinese-writer-highlight",
+                attributes: {
+                  "data-cw-keyword": match.keyword,
+                  "data-cw-setting-folder": settingFolder,
+                },
               })
             );
           }

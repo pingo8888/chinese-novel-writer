@@ -41,6 +41,18 @@ export interface HighlightStyle {
 }
 
 /**
+ * 高亮预览栏配置
+ */
+export interface HighlightPreviewStyle {
+  /** 预览栏宽度（px） */
+  width: number;
+  /** 预览栏最大高度（px） */
+  height: number;
+  /** 下方内容最多显示行数（超出出现滚动条） */
+  maxBodyLines: number;
+}
+
+/**
  * 插件设置接口
  */
 export interface ChineseWriterSettings {
@@ -48,6 +60,8 @@ export interface ChineseWriterSettings {
   folderMappings: FolderMapping[];
   /** 高亮样式配置 */
   highlightStyle: HighlightStyle;
+  /** 高亮预览栏配置 */
+  highlightPreviewStyle: HighlightPreviewStyle;
 }
 
 /**
@@ -64,7 +78,12 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
     fontWeight: "normal",
     fontStyle: "normal",
     color: "#4A86E9"
-  }
+  },
+  highlightPreviewStyle: {
+    width: 380,
+    height: 340,
+    maxBodyLines: 12,
+  },
 };
 
 /**
@@ -231,6 +250,51 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
             this.plugin.settings.highlightStyle.color = value;
             await this.plugin.saveSettings();
             this.updateHighlightStyles();
+          })
+      );
+
+    // 高亮预览栏设置
+    containerEl.createEl("h3", { text: "高亮悬停预览" });
+
+    new Setting(containerEl)
+      .setName("预览栏宽度")
+      .setDesc("悬停预览栏宽度（像素）")
+      .addSlider((slider) =>
+        slider
+          .setLimits(240, 720, 10)
+          .setValue(this.plugin.settings.highlightPreviewStyle.width)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            this.plugin.settings.highlightPreviewStyle.width = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("预览栏高度")
+      .setDesc("悬停预览栏最大高度（像素）")
+      .addSlider((slider) =>
+        slider
+          .setLimits(160, 800, 10)
+          .setValue(this.plugin.settings.highlightPreviewStyle.height)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            this.plugin.settings.highlightPreviewStyle.height = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("下方内容最多显示行数")
+      .setDesc("超过该行数时显示滚动条")
+      .addSlider((slider) =>
+        slider
+          .setLimits(3, 50, 1)
+          .setValue(this.plugin.settings.highlightPreviewStyle.maxBodyLines)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            this.plugin.settings.highlightPreviewStyle.maxBodyLines = value;
+            await this.plugin.saveSettings();
           })
       );
   }
