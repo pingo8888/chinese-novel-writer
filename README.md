@@ -45,7 +45,7 @@ Obsidian下，帮助进行中文小说写作的小插件。
 
 ### 手动安装
 
-1. 将插件文件夹复制到你的 Obsidian 仓库的 `.obsidian/plugins/` 目录下
+1. 将插件文件夹`release/chinese-writer`复制到你的 Obsidian 仓库的 `.obsidian/plugins/` 目录下
 2. 确保文件夹中包含以下文件：
    - `main.js`
    - `manifest.json`
