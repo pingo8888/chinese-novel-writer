@@ -9,12 +9,14 @@ interface KeywordPreviewData {
   fileName: string;
   h1Title: string;
   h2Title: string;
+  status?: string;
   aliases: string[];
   bodyLines: string[];
 }
 
 interface H3SectionData {
   title: string;
+  status?: string;
   aliases: string[];
   bodyLines: string[];
 }
@@ -107,6 +109,7 @@ export class HighlightManager {
                 fileName: parseResult.fileName,
                 h1Title: h1.text,
                 h2Title: h2.text,
+                status: this.extractPreferredStatus(h2.content),
                 aliases: h2Aliases,
                 bodyLines: this.extractBodyLines(h2.content),
               };
@@ -126,6 +129,7 @@ export class HighlightManager {
                   fileName: parseResult.fileName,
                   h1Title: h1.text,
                   h2Title: h2.text,
+                  status: h3.status,
                   aliases: h3.aliases,
                   bodyLines: h3.bodyLines,
                 };
@@ -239,6 +243,40 @@ export class HighlightManager {
       .filter((line) => line.length > 0);
   }
 
+  private extractPreferredStatus(lines: string[]): string | undefined {
+    const statusValues: string[] = [];
+
+    for (const line of lines) {
+      const statusTag = "【状态】";
+      const statusIndex = line.indexOf(statusTag);
+      if (statusIndex === -1) continue;
+
+      const rawValue = line.slice(statusIndex + statusTag.length).trim();
+      if (!rawValue) continue;
+
+      const normalizedRaw = rawValue.replace(/\s+/g, " ").trim();
+      if (normalizedRaw.includes("死亡")) {
+        statusValues.push("死亡");
+      }
+      if (normalizedRaw.includes("失效")) {
+        statusValues.push("失效");
+      }
+
+      const parts = normalizedRaw.split(/[，,、/|；;]+/);
+      for (const part of parts) {
+        const status = part.trim();
+        if (status) {
+          statusValues.push(status);
+        }
+      }
+    }
+
+    if (statusValues.length === 0) return undefined;
+    if (statusValues.includes("死亡")) return "死亡";
+    if (statusValues.includes("失效")) return "失效";
+    return statusValues[0];
+  }
+
   private getKeywordPreview(settingFolder: string, keyword: string): KeywordPreviewData | null {
     const folderMap = this.keywordPreviewCache.get(settingFolder);
     if (!folderMap) return null;
@@ -274,6 +312,7 @@ export class HighlightManager {
       if (!currentTitle) return;
       sections.push({
         title: currentTitle,
+        status: this.extractPreferredStatus(currentLines),
         aliases: this.extractAliases(currentLines),
         bodyLines: this.extractBodyLines(currentLines),
       });
@@ -389,7 +428,10 @@ export class HighlightManager {
       const headerEl = this.previewEl.createDiv({ cls: "cw-preview-header" });
       const titleWrapEl = headerEl.createDiv({ cls: "cw-preview-header-main" });
       const titleEl = titleWrapEl.createDiv({ cls: "cw-preview-title" });
-      titleEl.setText(previewData.keyword);
+      const titleText = previewData.status
+        ? `${previewData.keyword}[${previewData.status}]`
+        : previewData.keyword;
+      titleEl.setText(titleText);
 
       const locationEl = titleWrapEl.createDiv({ cls: "cw-preview-location" });
       locationEl.setText(`${previewData.fileName}/${previewData.h1Title}`);
