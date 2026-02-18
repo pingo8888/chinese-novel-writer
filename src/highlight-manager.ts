@@ -657,7 +657,14 @@ export class HighlightManager {
     for (let i = 0; i < text.length; i++) {
       const ch = text[i];
       if (config.comma && ch === ",") warningIndexes.add(i);
-      if (config.period && ch === ".") warningIndexes.add(i);
+      if (config.period && ch === ".") {
+        const prevChar = i > 0 ? (text[i - 1] ?? "") : "";
+        const nextChar = i + 1 < text.length ? (text[i + 1] ?? "") : "";
+        const isBetweenDigits = /\d/.test(prevChar) && /\d/.test(nextChar);
+        if (!isBetweenDigits) {
+          warningIndexes.add(i);
+        }
+      }
       if (config.colon && ch === ":") warningIndexes.add(i);
       if (config.semicolon && ch === ";") warningIndexes.add(i);
       if (config.exclamation && ch === "!") warningIndexes.add(i);

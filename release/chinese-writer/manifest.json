@@ -1,7 +1,7 @@
 {
   "id": "Chinese-Writer",
   "name": "Chinese Writer",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "minAppVersion": "0.15.0",
   "description": "A plugin for writing Chinese novels with keyword highlighting and setting management.",
   "author": "pingo8888",
