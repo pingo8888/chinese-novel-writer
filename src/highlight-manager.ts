@@ -715,6 +715,153 @@ export class HighlightManager {
   }
 
   /**
+   * 自动修正当前编辑器中的标点问题
+   */
+  async fixPunctuationForActiveEditor(): Promise<void> {
+    const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!activeView?.file || !activeView.editor) {
+      return;
+    }
+
+    const config = this.plugin.settings.punctuationCheck;
+    if (!config?.enabled) {
+      return;
+    }
+
+    const settingFolder = this.getSettingFolderForFile(activeView.file.path);
+    if (!settingFolder) {
+      return;
+    }
+
+    // 仅在已配置小说库中的文件执行（与检测行为一致）
+    if (this.isFileInFolder(activeView.file.path, settingFolder)) {
+      return;
+    }
+
+    const originalText = activeView.editor.getValue();
+    const { text: fixedText, changedCount } = this.applyPunctuationFixes(originalText);
+    if (changedCount <= 0 || fixedText === originalText) {
+      return;
+    }
+
+    activeView.editor.setValue(fixedText);
+    this.refreshCurrentEditor();
+  }
+
+  private applyPunctuationFixes(text: string): { text: string; changedCount: number } {
+    const config = this.plugin.settings.punctuationCheck;
+    if (!config?.enabled) {
+      return { text, changedCount: 0 };
+    }
+
+    let working = text;
+    let changedCount = 0;
+
+    const replaceChars = (
+      input: string,
+      matcher: (ch: string, index: number, source: string) => boolean,
+      replacement: string
+    ): { text: string; count: number } => {
+      let count = 0;
+      const chars = input.split("");
+      for (let i = 0; i < chars.length; i++) {
+        const ch = chars[i] ?? "";
+        if (!matcher(ch, i, input)) continue;
+        if (ch !== replacement) {
+          chars[i] = replacement;
+          count++;
+        }
+      }
+      return { text: chars.join(""), count };
+    };
+
+    if (config.comma) {
+      const result = replaceChars(working, (ch) => ch === ",", "，");
+      working = result.text;
+      changedCount += result.count;
+    }
+
+    if (config.period) {
+      const result = replaceChars(
+        working,
+        (ch, i, source) => {
+          if (ch !== ".") return false;
+          const prevChar = i > 0 ? (source[i - 1] ?? "") : "";
+          const nextChar = i + 1 < source.length ? (source[i + 1] ?? "") : "";
+          const isBetweenDigits = /\d/.test(prevChar) && /\d/.test(nextChar);
+          return !isBetweenDigits;
+        },
+        "。"
+      );
+      working = result.text;
+      changedCount += result.count;
+    }
+
+    if (config.semicolon) {
+      const result = replaceChars(working, (ch) => ch === ";", "；");
+      working = result.text;
+      changedCount += result.count;
+    }
+
+    if (config.exclamation) {
+      const result = replaceChars(working, (ch) => ch === "!", "！");
+      working = result.text;
+      changedCount += result.count;
+    }
+
+    if (config.question) {
+      const result = replaceChars(working, (ch) => ch === "?", "？");
+      working = result.text;
+      changedCount += result.count;
+    }
+
+    if (config.colon) {
+      const result = replaceChars(working, (ch) => ch === ":", "：");
+      working = result.text;
+      changedCount += result.count;
+    }
+
+    if (config.doubleQuote) {
+      const result = this.normalizeQuotePairs(working, new Set(["\"", "“", "”"]), "“", "”");
+      working = result.text;
+      changedCount += result.count;
+    }
+
+    if (config.singleQuote) {
+      const result = this.normalizeQuotePairs(working, new Set(["'", "‘", "’"]), "‘", "’");
+      working = result.text;
+      changedCount += result.count;
+    }
+
+    return { text: working, changedCount };
+  }
+
+  private normalizeQuotePairs(
+    text: string,
+    quoteChars: Set<string>,
+    openQuote: string,
+    closeQuote: string
+  ): { text: string; count: number } {
+    let needOpen = true;
+    let count = 0;
+    const chars = text.split("");
+
+    for (let i = 0; i < chars.length; i++) {
+      const ch = chars[i] ?? "";
+      if (!quoteChars.has(ch)) continue;
+
+      const nextQuote = needOpen ? openQuote : closeQuote;
+      if (ch !== nextQuote) {
+        chars[i] = nextQuote;
+        count++;
+      }
+      needOpen = !needOpen;
+    }
+
+    return { text: chars.join(""), count };
+  }
+
+  /**
    * 创建编辑器扩展
    */
   createEditorExtension() {

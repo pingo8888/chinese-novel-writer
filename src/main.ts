@@ -60,6 +60,15 @@ export default class ChineseWriterPlugin extends Plugin {
       },
     });
 
+    // 自动修正当前文档中的标点问题
+    this.addCommand({
+      id: "auto-fix-punctuation-in-current-file",
+      name: "自动修正当前文档标点问题",
+      callback: async () => {
+        await this.highlightManager.fixPunctuationForActiveEditor();
+      },
+    });
+
     // 添加功能区图标
     this.addRibbonIcon("book-type", "中文写作", () => {
       this.activateView();
