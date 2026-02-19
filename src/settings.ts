@@ -94,6 +94,8 @@ export interface ChineseWriterSettings {
   editorLineHeight: number;
   /** 编辑区段间距（px） */
   editorParagraphSpacing: number;
+  /** 是否启用编辑区排版 */
+  enableEditorTypography: boolean;
   /** 是否启用正文高亮悬停预览 */
   enableEditorHoverPreview: boolean;
   /** 是否启用右边栏第3层节点悬停预览 */
@@ -136,6 +138,7 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
   editorIndentCjkChars: 2,
   editorLineHeight: 1.6,
   editorParagraphSpacing: 12,
+  enableEditorTypography: false,
   enableEditorHoverPreview: true,
   enableTreeH2HoverPreview: false,
   openInNewTab: true,
@@ -527,6 +530,19 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
 
     // 编辑区排版设置
     containerEl.createEl("h3", { text: "编辑区排版" });
+
+    new Setting(containerEl)
+      .setName("启用编辑区排版")
+      .setDesc("关闭后不应用行首缩进、行间距和段间距")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.enableEditorTypography)
+          .onChange(async (value) => {
+            this.plugin.settings.enableEditorTypography = value;
+            await this.plugin.saveSettings();
+            this.updateEditorTypographyStyles();
+          })
+      );
 
     new Setting(containerEl)
       .setName("行首缩进（中文字符）")

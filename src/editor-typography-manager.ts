@@ -12,14 +12,18 @@ export class EditorTypographyManager {
   }
 
   updateStyles(): void {
-    const indentChars = Math.max(0, this.plugin.settings.editorIndentCjkChars ?? 0);
-    const lineHeight = Math.max(1, this.plugin.settings.editorLineHeight ?? 1.8);
-    const paragraphSpacing = Math.max(0, this.plugin.settings.editorParagraphSpacing ?? 0);
-
     const oldStyle = document.getElementById("chinese-writer-editor-typography-style");
     if (oldStyle) {
       oldStyle.remove();
     }
+
+    if (!this.plugin.settings.enableEditorTypography) {
+      return;
+    }
+
+    const indentChars = Math.max(0, this.plugin.settings.editorIndentCjkChars ?? 0);
+    const lineHeight = Math.max(1, this.plugin.settings.editorLineHeight ?? 1.8);
+    const paragraphSpacing = Math.max(0, this.plugin.settings.editorParagraphSpacing ?? 0);
 
     const styleEl = document.createElement("style");
     styleEl.id = "chinese-writer-editor-typography-style";
