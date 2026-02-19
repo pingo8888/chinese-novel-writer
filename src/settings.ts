@@ -88,6 +88,12 @@ export interface ChineseWriterSettings {
   highlightPreviewStyle: HighlightPreviewStyle;
   /** 常见标点检测配置 */
   punctuationCheck: PunctuationCheckSettings;
+  /** 编辑区行首缩进（中文字符数） */
+  editorIndentCjkChars: number;
+  /** 编辑区行间距 */
+  editorLineHeight: number;
+  /** 编辑区段间距（px） */
+  editorParagraphSpacing: number;
   /** 是否启用正文高亮悬停预览 */
   enableEditorHoverPreview: boolean;
   /** 是否启用右边栏第3层节点悬停预览 */
@@ -127,6 +133,9 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
     doubleQuote: true,
     singleQuote: true,
   },
+  editorIndentCjkChars: 2,
+  editorLineHeight: 1.8,
+  editorParagraphSpacing: 14,
   enableEditorHoverPreview: true,
   enableTreeH2HoverPreview: false,
   openInNewTab: true,
@@ -515,6 +524,54 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           })
       );
+
+    // 编辑区排版设置
+    containerEl.createEl("h3", { text: "编辑区排版" });
+
+    new Setting(containerEl)
+      .setName("行首缩进（中文字符）")
+      .setDesc("仅编辑视图生效，按中文字符宽度缩进")
+      .addSlider((slider) =>
+        slider
+          .setLimits(0, 6, 0.5)
+          .setValue(this.plugin.settings.editorIndentCjkChars)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            this.plugin.settings.editorIndentCjkChars = value;
+            await this.plugin.saveSettings();
+            this.updateEditorTypographyStyles();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("行间距")
+      .setDesc("仅编辑视图生效")
+      .addSlider((slider) =>
+        slider
+          .setLimits(1.2, 2.6, 0.1)
+          .setValue(this.plugin.settings.editorLineHeight)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            this.plugin.settings.editorLineHeight = value;
+            await this.plugin.saveSettings();
+            this.updateEditorTypographyStyles();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("段间距")
+      .setDesc("仅编辑视图生效；与行间距独立，不叠加")
+      .addSlider((slider) =>
+        slider
+          .setLimits(0, 32, 1)
+          .setValue(this.plugin.settings.editorParagraphSpacing)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            this.plugin.settings.editorParagraphSpacing = value;
+            await this.plugin.saveSettings();
+            this.updateEditorTypographyStyles();
+          })
+      );
   }
 
   /**
@@ -694,6 +751,12 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
     // 清除关键字缓存并强制刷新编辑器
     if (this.plugin.highlightManager) {
       this.plugin.highlightManager.refreshCurrentEditor();
+    }
+  }
+
+  private updateEditorTypographyStyles(): void {
+    if (this.plugin.editorTypographyManager) {
+      this.plugin.editorTypographyManager.updateStyles();
     }
   }
 }

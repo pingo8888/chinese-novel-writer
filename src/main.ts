@@ -4,6 +4,7 @@ import { FileParser } from "./parser";
 import { TreeView, VIEW_TYPE_TREE } from "./tree-view";
 import { OrderManager } from "./order-manager";
 import { HighlightManager } from "./highlight-manager";
+import { EditorTypographyManager } from "./editor-typography-manager";
 
 /**
  * 中文写作插件主类
@@ -13,6 +14,7 @@ export default class ChineseWriterPlugin extends Plugin {
   parser: FileParser;
   orderManager: OrderManager;
   highlightManager: HighlightManager;
+  editorTypographyManager: EditorTypographyManager;
   private pluginDir = "";
   private settingsFilePath = "";
   private settingMenuRootEl: HTMLElement | null = null;
@@ -38,12 +40,16 @@ export default class ChineseWriterPlugin extends Plugin {
 
     // 初始化高亮管理器
     this.highlightManager = new HighlightManager(this);
+    // 初始化编辑区排版管理器
+    this.editorTypographyManager = new EditorTypographyManager(this);
 
     // 注册编辑器扩展（关键字高亮）
     this.registerEditorExtension(this.highlightManager.createEditorExtension());
 
     // 初始化高亮样式
     this.highlightManager.updateStyles();
+    // 初始化编辑区排版样式
+    this.editorTypographyManager.updateStyles();
 
     // 注册视图
     this.registerView(
