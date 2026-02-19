@@ -88,6 +88,8 @@ export interface ChineseWriterSettings {
   highlightPreviewStyle: HighlightPreviewStyle;
   /** 常见标点检测配置 */
   punctuationCheck: PunctuationCheckSettings;
+  /** 是否启用正文高亮悬停预览 */
+  enableEditorHoverPreview: boolean;
   /** 是否启用右边栏第3层节点悬停预览 */
   enableTreeH2HoverPreview: boolean;
   /** 通过插件功能打开/新建文件时是否在新标签页打开 */
@@ -125,6 +127,7 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
     doubleQuote: true,
     singleQuote: true,
   },
+  enableEditorHoverPreview: true,
   enableTreeH2HoverPreview: false,
   openInNewTab: true,
 };
@@ -431,6 +434,18 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
 
     // 高亮预览栏设置
     containerEl.createEl("h3", { text: "预览栏设置" });
+
+    new Setting(containerEl)
+      .setName("正文悬停预览")
+      .setDesc("开启后，鼠标悬停正文高亮关键词时显示预览栏")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.enableEditorHoverPreview)
+          .onChange(async (value) => {
+            this.plugin.settings.enableEditorHoverPreview = value;
+            await this.plugin.saveSettings();
+          })
+      );
 
     new Setting(containerEl)
       .setName("右边栏悬停预览")

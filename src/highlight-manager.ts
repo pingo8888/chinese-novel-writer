@@ -402,6 +402,10 @@ export class HighlightManager {
       this.scheduleHidePreview();
       return;
     }
+    if (!this.plugin.settings.enableEditorHoverPreview) {
+      this.scheduleHidePreview(80);
+      return;
+    }
 
     const keyword = highlightEl.dataset.cwKeyword;
     const settingFolder = highlightEl.dataset.cwSettingFolder;
