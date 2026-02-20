@@ -353,8 +353,10 @@ export class MdStatsManager {
       .map((line) => line.replace(/^\s{0,3}#{1,6}\s+/, ""))
       .join("");
 
-    // 按字符统计，排除空白字符（空格、制表符、换行等）与连字符 "-"
-    return normalized.replace(/[\s-]+/g, "").length;
+    // 数字（含正负号、小数、百分号）按 1 个字符计数
+    const withNumberToken = normalized.replace(/[+-]?(?:\d+(?:\.\d+)?|\.\d+)%?/g, "N");
+    // 其余按字符统计，排除空白字符（空格、制表符、换行等）与连字符 "-"
+    return withNumberToken.replace(/[\s-]+/g, "").length;
   }
 
   private stripFrontmatter(rawText: string): string {
@@ -373,11 +375,8 @@ export class MdStatsManager {
   }
 
   private formatCharCount(charCount: number): string {
-    if (charCount < 1000) {
-      return `${charCount}字`;
-    }
     if (charCount < 10000) {
-      return `${(charCount / 1000).toFixed(1)}千`;
+      return `${charCount}字`;
     }
     return `${(charCount / 10000).toFixed(1)}万`;
   }
