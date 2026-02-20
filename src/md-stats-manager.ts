@@ -1,5 +1,6 @@
 import { MarkdownView, TFile } from "obsidian";
-import { EditorView, ViewUpdate } from "@codemirror/view";
+import { RangeSet, RangeSetBuilder, Transaction } from "@codemirror/state";
+import { EditorView, GutterMarker, ViewUpdate, gutter } from "@codemirror/view";
 import type ChineseWriterPlugin from "./main";
 
 interface FileCharCacheEntry {
@@ -11,6 +12,22 @@ interface FileCharCacheEntry {
 interface FolderStats {
   fileCount: number;
   charCount: number;
+}
+
+class CharMilestoneMarker extends GutterMarker {
+  private text: string;
+
+  constructor(text: string) {
+    super();
+    this.text = text;
+  }
+
+  toDOM(): HTMLElement {
+    const el = document.createElement("span");
+    el.className = "cw-char-milestone-marker";
+    el.textContent = this.text;
+    return el;
+  }
 }
 
 /**
@@ -51,13 +68,22 @@ export class MdStatsManager {
     });
   }
 
+  createLineMilestoneExtension() {
+    return gutter({
+      class: "cw-char-milestone-gutter",
+      markers: (view) => this.buildLineMilestoneMarkers(view),
+    });
+  }
+
   setEnabled(enabled: boolean): void {
     if (enabled) {
       this.startRuntime();
+      this.refreshMarkdownEditors();
       return;
     }
     this.stopRuntime();
     this.clearFileExplorerBadges();
+    this.refreshMarkdownEditors();
   }
 
   onVaultFileChanged(filePath?: string): void {
@@ -263,6 +289,87 @@ export class MdStatsManager {
       }
     }
     return result;
+  }
+
+  private buildLineMilestoneMarkers(view: EditorView): RangeSet<GutterMarker> {
+    if (!this.isEnabled()) {
+      return RangeSet.empty;
+    }
+    const markdownView = this.getMarkdownViewForEditorView(view);
+    const file = markdownView?.file;
+    if (!file || file.extension !== "md") {
+      return RangeSet.empty;
+    }
+
+    const lineCount = view.state.doc.lines;
+    if (lineCount === 0) {
+      return RangeSet.empty;
+    }
+
+    const frontmatterEndLine = this.getFrontmatterEndLine(view.state.doc);
+    const builder = new RangeSetBuilder<GutterMarker>();
+    let cumulative = 0;
+    let nextMilestone = 500;
+
+    for (let lineNo = 1; lineNo <= lineCount; lineNo++) {
+      if (frontmatterEndLine > 0 && lineNo <= frontmatterEndLine) {
+        continue;
+      }
+      const line = view.state.doc.line(lineNo);
+      const lineCountValue = this.countLineCharacters(line.text);
+      cumulative += lineCountValue;
+
+      if (cumulative < nextMilestone) {
+        continue;
+      }
+
+      let reachedMilestone = nextMilestone;
+      while (cumulative >= nextMilestone) {
+        reachedMilestone = nextMilestone;
+        nextMilestone += 500;
+      }
+      const targetLineNo = lineNo < lineCount ? lineNo + 1 : lineNo;
+      const targetLine = view.state.doc.line(targetLineNo);
+      builder.add(targetLine.from, targetLine.from, new CharMilestoneMarker(`${reachedMilestone}字`));
+    }
+
+    return builder.finish();
+  }
+
+  private getFrontmatterEndLine(doc: EditorView["state"]["doc"]): number {
+    if (doc.lines < 1) return 0;
+    if (doc.line(1).text.trim() !== "---") {
+      return 0;
+    }
+    for (let i = 2; i <= doc.lines; i++) {
+      if (doc.line(i).text.trim() === "---") {
+        return i;
+      }
+    }
+    return 0;
+  }
+
+  private countLineCharacters(line: string): number {
+    const withoutHeading = line.replace(/^\s{0,3}#{1,6}\s+/, "");
+    const withNumberToken = withoutHeading.replace(/[+-]?(?:\d+(?:\.\d+)?|\.\d+)%?/g, "N");
+    return withNumberToken.replace(/[\s-]+/g, "").length;
+  }
+
+  private refreshMarkdownEditors(): void {
+    const leaves = this.plugin.app.workspace.getLeavesOfType("markdown");
+    for (const leaf of leaves) {
+      const view = leaf.view;
+      if (!(view instanceof MarkdownView) || !view.editor) {
+        continue;
+      }
+      const cmView = (view.editor as unknown as { cm?: EditorView }).cm;
+      if (!cmView) {
+        continue;
+      }
+      cmView.dispatch({
+        annotations: Transaction.addToHistory.of(false),
+      });
+    }
   }
 
   private getFileExplorerFolderTitleElements(): HTMLElement[] {

@@ -51,6 +51,8 @@ export default class ChineseWriterPlugin extends Plugin {
     this.registerEditorExtension(this.highlightManager.createEditorExtension());
     // 注册编辑器扩展（选区/字数统计）
     this.registerEditorExtension(this.mdStatsManager.createSelectionListenerExtension());
+    // 注册编辑器扩展（每 500 字里程碑提示）
+    this.registerEditorExtension(this.mdStatsManager.createLineMilestoneExtension());
 
     // 初始化高亮样式
     this.highlightManager.updateStyles();

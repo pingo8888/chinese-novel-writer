@@ -581,3 +581,18 @@
   color: var(--text-muted);
   letter-spacing: 0.2px;
 }
+
+/* 编辑区行号右侧：每 500 字提示 */
+.cm-gutters .cw-char-milestone-gutter {
+  min-width: 52px;
+  order: 2;
+}
+
+.cw-char-milestone-marker {
+  display: inline-block;
+  width: 100%;
+  text-align: right;
+  padding-right: 6px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
