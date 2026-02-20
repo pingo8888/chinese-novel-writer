@@ -24,6 +24,14 @@ export class EditorTypographyManager {
     const indentChars = Math.max(0, this.plugin.settings.editorIndentCjkChars ?? 0);
     const lineHeight = Math.max(1, this.plugin.settings.editorLineHeight ?? 1.8);
     const paragraphSpacing = Math.max(0, this.plugin.settings.editorParagraphSpacing ?? 0);
+    const justifyCss = this.plugin.settings.enableEditorJustify
+      ? `
+      .cm-s-obsidian {
+        text-align: justify;
+        hyphens: auto;
+      }
+      `
+      : "";
 
     const styleEl = document.createElement("style");
     styleEl.id = "chinese-writer-editor-typography-style";
@@ -38,6 +46,7 @@ export class EditorTypographyManager {
         padding-bottom: calc(${paragraphSpacing}px / 2);
         box-sizing: border-box;
       }
+      ${justifyCss}
     `;
     document.head.appendChild(styleEl);
   }

@@ -96,6 +96,8 @@ export interface ChineseWriterSettings {
   editorParagraphSpacing: number;
   /** 是否启用编辑区排版 */
   enableEditorTypography: boolean;
+  /** 是否启用编辑区两端对齐 */
+  enableEditorJustify: boolean;
   /** 是否启用正文高亮悬停预览 */
   enableEditorHoverPreview: boolean;
   /** 是否启用右边栏第3层节点悬停预览 */
@@ -143,6 +145,7 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
   editorLineHeight: 1.6,
   editorParagraphSpacing: 12,
   enableEditorTypography: false,
+  enableEditorJustify: false,
   enableEditorHoverPreview: true,
   enableTreeH2HoverPreview: false,
   openInNewTab: true,
@@ -545,6 +548,19 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.enableEditorTypography)
           .onChange(async (value) => {
             this.plugin.settings.enableEditorTypography = value;
+            await this.plugin.saveSettings();
+            this.updateEditorTypographyStyles();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("两端对齐")
+      .setDesc("开启后编辑区正文使用两端对齐，并启用自动断词")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.enableEditorJustify)
+          .onChange(async (value) => {
+            this.plugin.settings.enableEditorJustify = value;
             await this.plugin.saveSettings();
             this.updateEditorTypographyStyles();
           })
