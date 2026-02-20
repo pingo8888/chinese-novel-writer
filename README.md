@@ -22,6 +22,9 @@
 ## 关键字预览栏
 ![](./images/keyword%20preview%20tips.png)
 
+## 右键菜单快速添加设定
+![](./images/add%20keyword%20quickly.png)
+
 ## 中文字数统计
 ![](./images/chinese%20word%20counter%20status%20bar.png)
 ![](./images/chinese%20word%20counter%20file%20explorer.png)
@@ -30,6 +33,9 @@
 ![](./images/punctuation%20error.png)
 
 ![](./images/cmd%20for%20auto%20correct%20punctuation%20error.png)
+
+## 新建章节命令（当前最大章节数字+1）
+![](./images/cmd%20for%20create%20new%20chapter.png)
 
 ## 侧边栏文字里程碑（每500字）
 ![](./images/left%20side%20word%20milestone.png)
