@@ -24,7 +24,6 @@ order.json
 .DS_Store
 
 # release path
-v0.2.2更新说明.md
 cw-view-datas.json
 cw-setting.json
 release
