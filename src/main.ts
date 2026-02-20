@@ -6,6 +6,7 @@ import { OrderManager } from "./order-manager";
 import { HighlightManager } from "./highlight-manager";
 import { EditorTypographyManager } from "./editor-typography-manager";
 import { MdStatsManager } from "./md-stats-manager";
+import { ChapterManager } from "./chapter-manager";
 
 /**
  * 中文写作插件主类
@@ -17,6 +18,7 @@ export default class ChineseWriterPlugin extends Plugin {
   highlightManager: HighlightManager;
   editorTypographyManager: EditorTypographyManager;
   mdStatsManager: MdStatsManager;
+  chapterManager: ChapterManager;
   private pluginDir = "";
   private settingsFilePath = "";
   private settingMenuRootEl: HTMLElement | null = null;
@@ -46,6 +48,8 @@ export default class ChineseWriterPlugin extends Plugin {
     this.editorTypographyManager = new EditorTypographyManager(this);
     // 初始化 Markdown 统计管理器
     this.mdStatsManager = new MdStatsManager(this);
+    // 初始化章节管理器
+    this.chapterManager = new ChapterManager(this);
 
     // 注册编辑器扩展（关键字高亮）
     this.registerEditorExtension(this.highlightManager.createEditorExtension());
@@ -84,6 +88,15 @@ export default class ChineseWriterPlugin extends Plugin {
       name: "自动修正当前文档标点问题",
       callback: async () => {
         await this.highlightManager.fixPunctuationForActiveEditor();
+      },
+    });
+
+    // 新建章节：按当前文件所在目录的最大章节号 +1 创建
+    this.addCommand({
+      id: "create-next-chapter-file",
+      name: "新建章节",
+      callback: async () => {
+        await this.chapterManager.createNextChapterFromActiveFile();
       },
     });
 
