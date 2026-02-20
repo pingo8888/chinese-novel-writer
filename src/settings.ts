@@ -592,8 +592,8 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    // 便捷功能
-    containerEl.createEl("h3", { text: "便捷功能" });
+    // 其他便捷功能
+    containerEl.createEl("h3", { text: "其他便捷功能" });
 
     new Setting(containerEl)
       .setName("启用字符数统计")
