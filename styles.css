@@ -576,6 +576,13 @@
   min-width: 56px;
 }
 
+/* 原生文件资源管理器：选中态提高统计对比度 */
+.workspace-leaf-content[data-type="file-explorer"] .nav-folder-title.is-active .cw-folder-md-stats,
+.workspace-leaf-content[data-type="file-explorer"] .nav-file-title.is-active .cw-file-md-stats {
+  color: var(--nav-item-color-active);
+  font-weight: var(--nav-item-weight-active);
+}
+
 /* 右下角状态栏：字数统计 */
 .cw-status-char-counter {
   color: var(--text-muted);
