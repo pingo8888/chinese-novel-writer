@@ -1,7 +1,7 @@
 {
   "id": "chinese-novel-writer",
   "name": "chinse novel writer",
-  "version": "0.2.2",
+  "version": "0.1.0",
   "minAppVersion": "0.15.0",
   "description": "方便中文小说写作的一组小功能",
   "author": "pingo8888",
