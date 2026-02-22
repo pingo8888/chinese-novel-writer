@@ -59,6 +59,15 @@ export class TreeView extends ItemView {
   }
 
   /**
+   * 获取当前树中的所有 H2 文本（只读快照）
+   */
+  getH2TextsSnapshot(): string[] {
+    const values = new Set<string>();
+    this.collectH2Texts(this.treeData, values);
+    return Array.from(values);
+  }
+
+  /**
    * 刷新视图（完全重建，用于初始化或设置变更）
    */
   async refresh(): Promise<void> {
@@ -161,6 +170,20 @@ export class TreeView extends ItemView {
     const states = new Map<string, boolean>();
     this.collectExpandedStates(this.treeData, states);
     return states;
+  }
+
+  private collectH2Texts(nodes: TreeNode[], values: Set<string>): void {
+    for (const node of nodes) {
+      if (node.type === "h2") {
+        const text = node.text.trim();
+        if (text) {
+          values.add(text);
+        }
+      }
+      if (node.children.length > 0) {
+        this.collectH2Texts(node.children, values);
+      }
+    }
   }
 
   /**

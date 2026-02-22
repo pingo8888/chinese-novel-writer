@@ -7,6 +7,7 @@ import { HighlightManager } from "./highlight-manager";
 import { EditorTypographyManager } from "./editor-typography-manager";
 import { MdStatsManager } from "./md-stats-manager";
 import { ChapterManager } from "./chapter-manager";
+import { SlashH2CompleteManager } from "./slash-h2-complete-manager";
 
 /**
  * 中文写作插件主类
@@ -19,6 +20,7 @@ export default class ChineseWriterPlugin extends Plugin {
   editorTypographyManager: EditorTypographyManager;
   mdStatsManager: MdStatsManager;
   chapterManager: ChapterManager;
+  slashH2CompleteManager: SlashH2CompleteManager;
   private pluginDir = "";
   private settingsFilePath = "";
   private settingMenuRootEl: HTMLElement | null = null;
@@ -50,6 +52,8 @@ export default class ChineseWriterPlugin extends Plugin {
     this.mdStatsManager = new MdStatsManager(this);
     // 初始化章节管理器
     this.chapterManager = new ChapterManager(this);
+    // 初始化 //H2 候选管理器
+    this.slashH2CompleteManager = new SlashH2CompleteManager(this);
 
     // 注册编辑器扩展（关键字高亮）
     this.registerEditorExtension(this.highlightManager.createEditorExtension());
@@ -59,6 +63,8 @@ export default class ChineseWriterPlugin extends Plugin {
     this.registerEditorExtension(this.mdStatsManager.createLineMilestoneExtension());
     // 注册编辑器扩展（标题等级图标）
     this.registerEditorExtension(this.mdStatsManager.createHeadingIconExtension());
+    // 注册编辑器扩展（// H2 候选输入）
+    this.registerEditorExtension(this.slashH2CompleteManager.createEditorExtension());
 
     // 初始化高亮样式
     this.highlightManager.updateStyles();
@@ -230,6 +236,17 @@ export default class ChineseWriterPlugin extends Plugin {
     if (leaf) {
       workspace.revealLeaf(leaf);
     }
+  }
+
+  getCurrentTreeH2Texts(): string[] {
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TREE);
+    for (const leaf of leaves) {
+      const view = leaf.view;
+      if (view instanceof TreeView) {
+        return view.getH2TextsSnapshot();
+      }
+    }
+    return [];
   }
 
   /**

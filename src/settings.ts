@@ -108,6 +108,10 @@ export interface ChineseWriterSettings {
   enableMdStats: boolean;
   /** 是否在编辑区标题前显示等级图标 */
   enableEditorHeadingIcons: boolean;
+  /** 是否启用 // 候选栏 */
+  enableSlashH2CandidateBar: boolean;
+  /** // 候选栏每页最大显示项 */
+  slashH2CandidatePageSize: number;
 }
 
 /**
@@ -151,6 +155,8 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
   openInNewTab: true,
   enableMdStats: false,
   enableEditorHeadingIcons: false,
+  enableSlashH2CandidateBar: false,
+  slashH2CandidatePageSize: 8,
 };
 
 /**
@@ -522,20 +528,50 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    // 文件打开行为设置
-    containerEl.createEl("h3", { text: "文件打开行为" });
+    // 候选栏设置
+    containerEl.createEl("h3", { text: "候选栏设置" });
+
+    let candidatePageSizeText: HTMLDivElement | null = null;
+    let candidatePageSizeSlider: { setDisabled: (disabled: boolean) => unknown } | null = null;
+    const updateCandidatePageSizeDesc = (value: number) => {
+      if (candidatePageSizeText) {
+        candidatePageSizeText.setText(`当前每页最多显示 ${value} 项`);
+      }
+    };
 
     new Setting(containerEl)
-      .setName("在新标签页打开")
-      .setDesc("通过插件内相关功能打开或新建文件时，是否在新标签页打开（已打开则复用现有标签）")
+      .setName("启用 // 候选栏")
+      .setDesc("关闭时不响应 // 触发词汇候选")
       .addToggle((toggle) =>
         toggle
-          .setValue(this.plugin.settings.openInNewTab)
+          .setValue(this.plugin.settings.enableSlashH2CandidateBar)
           .onChange(async (value) => {
-            this.plugin.settings.openInNewTab = value;
+            this.plugin.settings.enableSlashH2CandidateBar = value;
+            candidatePageSizeSlider?.setDisabled(!value);
             await this.plugin.saveSettings();
           })
       );
+
+    const pageSizeSetting = new Setting(containerEl)
+      .setName("每页最多显示项数")
+      .setDesc("候选栏分页显示，每页最多展示的候选词数量")
+      .addSlider((slider) =>
+        (candidatePageSizeSlider = slider, slider
+          .setLimits(1, 20, 1)
+          .setValue(this.plugin.settings.slashH2CandidatePageSize)
+          .setDynamicTooltip()
+          .setDisabled(!this.plugin.settings.enableSlashH2CandidateBar)
+          .onChange(async (value) => {
+            this.plugin.settings.slashH2CandidatePageSize = value;
+            updateCandidatePageSizeDesc(value);
+            await this.plugin.saveSettings();
+          }))
+      );
+    candidatePageSizeText = pageSizeSetting.descEl.createDiv({
+      cls: "setting-item-description",
+      text: "",
+    });
+    updateCandidatePageSizeDesc(this.plugin.settings.slashH2CandidatePageSize);
 
     // 编辑区排版设置
     containerEl.createEl("h3", { text: "编辑区排版" });
@@ -599,6 +635,23 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
             this.updateEditorTypographyStyles();
           })
       );
+
+
+    // 文件打开行为设置
+    containerEl.createEl("h3", { text: "文件打开行为" });
+
+    new Setting(containerEl)
+      .setName("在新标签页打开")
+      .setDesc("通过插件内相关功能打开或新建文件时，是否在新标签页打开（已打开则复用现有标签）")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.openInNewTab)
+          .onChange(async (value) => {
+            this.plugin.settings.openInNewTab = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
 
     // 其他便捷功能
     containerEl.createEl("h3", { text: "其他便捷功能" });

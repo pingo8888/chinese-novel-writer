@@ -634,3 +634,59 @@
   align-items: center;
   justify-content: center;
 }
+
+/* 编辑区 // H2 候选栏 */
+.cw-slash-h2-popup {
+  position: fixed;
+  z-index: 10030;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  max-width: 360px;
+  max-height: 320px;
+  overflow: hidden;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-primary);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
+}
+
+.cw-slash-h2-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px;
+  justify-content: center;
+}
+
+.cw-slash-h2-item {
+  padding: 6px 10px;
+  border-radius: 6px;
+  line-height: 1.4;
+  font-size: 14px;
+  color: var(--text-normal);
+  cursor: pointer;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.cw-slash-h2-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.cw-slash-h2-item.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.cw-slash-h2-page-info {
+  flex-shrink: 0;
+  border-top: 1px solid var(--background-modifier-border);
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
