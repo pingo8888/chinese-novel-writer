@@ -8,6 +8,10 @@ export class TextInputModal extends Modal {
   private placeholder: string;
   private defaultValue: string;
   private onSubmit: (value: string) => void;
+  private suggestions: string[];
+  private onCancel?: () => void;
+  private suggestionContainerEl?: HTMLElement;
+  private viewportListener?: () => void;
   private submitted = false; // 防止重复提交
 
   constructor(
@@ -15,52 +19,174 @@ export class TextInputModal extends Modal {
     title: string,
     placeholder: string,
     defaultValue: string,
-    onSubmit: (value: string) => void
+    onSubmit: (value: string) => void,
+    suggestions: string[] = [],
+    onCancel?: () => void
   ) {
     super(app);
     this.title = title;
     this.placeholder = placeholder;
     this.defaultValue = defaultValue;
     this.onSubmit = onSubmit;
+    this.suggestions = suggestions;
+    this.onCancel = onCancel;
   }
 
   onOpen() {
     const { contentEl } = this;
 
-    // 设置 modal 容器的样式
     const modalEl = contentEl.closest(".modal") as HTMLElement;
     if (modalEl) {
-      modalEl.style.minHeight = "auto";
-      modalEl.style.height = "auto";
-      modalEl.style.maxWidth = "400px";
-      modalEl.style.width = "90%";
+      modalEl.classList.add("cw-modal");
     }
+    contentEl.classList.add("cw-modal-content");
 
-    // 设置 contentEl 的样式
-    contentEl.style.padding = "1em";
+    contentEl.createEl("h2", { text: this.title, cls: "cw-modal-title" });
 
-    const titleEl = contentEl.createEl("h2", { text: this.title });
-    titleEl.style.marginTop = "0";
-    titleEl.style.marginBottom = "0.8em";
-    titleEl.style.fontSize = "1.2em";
+    const inputWrapper = contentEl.createDiv({ cls: "cw-input-wrapper" });
 
-    const inputEl = contentEl.createEl("input", {
+    const inputEl = inputWrapper.createEl("input", {
       type: "text",
       placeholder: this.placeholder,
       value: this.defaultValue,
+      cls: "cw-text-input",
     });
-    inputEl.style.width = "100%";
-    inputEl.style.marginBottom = "1em";
-    inputEl.style.padding = "0.5em";
+
+    const suggestionContainer = document.createElement("div");
+    suggestionContainer.classList.add("cw-suggestion-container", "cw-suggestion-container-floating");
+    document.body.appendChild(suggestionContainer);
+    suggestionContainer.hidden = true;
+    this.suggestionContainerEl = suggestionContainer;
+    let filteredSuggestions: string[] = [];
+    let activeSuggestionIndex = -1;
+
+    const updateSuggestionPosition = () => {
+      const rect = inputEl.getBoundingClientRect();
+      suggestionContainer.style.left = `${Math.round(rect.left)}px`;
+      suggestionContainer.style.top = `${Math.round(rect.bottom + 4)}px`;
+      suggestionContainer.style.width = `${Math.round(rect.width)}px`;
+    };
+    const syncSuggestionPositionAfterLayout = () => {
+      requestAnimationFrame(() => {
+        updateSuggestionPosition();
+        requestAnimationFrame(() => {
+          updateSuggestionPosition();
+        });
+      });
+      setTimeout(() => {
+        if (!suggestionContainer.hidden) {
+          updateSuggestionPosition();
+        }
+      }, 60);
+    };
+
+    const viewportListener = () => {
+      if (!suggestionContainer.hidden) {
+        updateSuggestionPosition();
+      }
+    };
+    this.viewportListener = viewportListener;
+    window.addEventListener("resize", viewportListener);
+    window.addEventListener("scroll", viewportListener, true);
+
+    const applyRowStyle = (row: HTMLElement, isActive: boolean) => {
+      row.classList.toggle("is-active", isActive);
+    };
+
+    const updateActiveSuggestion = () => {
+      const rows = Array.from(suggestionContainer.children) as HTMLElement[];
+      rows.forEach((row, idx) => {
+        applyRowStyle(row, idx === activeSuggestionIndex);
+      });
+      if (
+        activeSuggestionIndex >= 0 &&
+        activeSuggestionIndex < rows.length
+      ) {
+        const activeRow = rows[activeSuggestionIndex];
+        if (activeRow) {
+          activeRow.scrollIntoView({ block: "nearest" });
+        }
+      }
+    };
+
+    const acceptActiveSuggestion = () => {
+      if (
+        activeSuggestionIndex < 0 ||
+        activeSuggestionIndex >= filteredSuggestions.length
+      ) {
+        return false;
+      }
+      const selected = filteredSuggestions[activeSuggestionIndex];
+      if (!selected) {
+        return false;
+      }
+      inputEl.value = selected;
+      suggestionContainer.hidden = true;
+      suggestionContainer.empty();
+      filteredSuggestions = [];
+      activeSuggestionIndex = -1;
+      return true;
+    };
+
+    const renderSuggestions = (keyword: string) => {
+      if (this.suggestions.length === 0) {
+        suggestionContainer.hidden = true;
+        filteredSuggestions = [];
+        activeSuggestionIndex = -1;
+        return;
+      }
+
+      const normalized = keyword.trim().toLowerCase();
+      if (!normalized) {
+        suggestionContainer.hidden = true;
+        suggestionContainer.empty();
+        filteredSuggestions = [];
+        activeSuggestionIndex = -1;
+        return;
+      }
+      filteredSuggestions = this.suggestions
+        .filter((item) => item.toLowerCase().includes(normalized))
+        .slice(0, 50);
+
+      suggestionContainer.empty();
+
+      if (filteredSuggestions.length === 0) {
+        suggestionContainer.hidden = true;
+        activeSuggestionIndex = -1;
+        return;
+      }
+
+      suggestionContainer.hidden = false;
+      updateSuggestionPosition();
+      syncSuggestionPositionAfterLayout();
+      activeSuggestionIndex = 0;
+
+      filteredSuggestions.forEach((item, idx) => {
+        const row = suggestionContainer.createDiv({ text: item, cls: "cw-suggestion-row" });
+        row.addEventListener("mouseenter", () => {
+          activeSuggestionIndex = idx;
+          updateActiveSuggestion();
+        });
+        row.addEventListener("mouseleave", () => {
+          updateActiveSuggestion();
+        });
+        row.addEventListener("click", () => {
+          activeSuggestionIndex = idx;
+          acceptActiveSuggestion();
+          inputEl.value = item;
+          inputEl.focus();
+        });
+      });
+      updateActiveSuggestion();
+    };
 
     // 自动聚焦并选中文本
     inputEl.focus();
     inputEl.select();
+    renderSuggestions(inputEl.value);
+    syncSuggestionPositionAfterLayout();
 
-    const buttonContainer = contentEl.createDiv();
-    buttonContainer.style.display = "flex";
-    buttonContainer.style.justifyContent = "flex-end";
-    buttonContainer.style.gap = "0.5em";
+    const buttonContainer = contentEl.createDiv({ cls: "cw-modal-buttons" });
 
     const cancelBtn = buttonContainer.createEl("button", { text: "取消" });
     cancelBtn.addEventListener("click", () => {
@@ -91,16 +217,65 @@ export class TextInputModal extends Modal {
 
     // 回车提交
     inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
-      if (e.key === "Enter") {
+      if (e.key === "ArrowDown" && !suggestionContainer.hidden) {
+        e.preventDefault();
+        if (filteredSuggestions.length > 0) {
+          activeSuggestionIndex =
+            (activeSuggestionIndex + 1 + filteredSuggestions.length) % filteredSuggestions.length;
+          updateActiveSuggestion();
+        }
+      } else if (e.key === "ArrowUp" && !suggestionContainer.hidden) {
+        e.preventDefault();
+        if (filteredSuggestions.length > 0) {
+          if (activeSuggestionIndex === -1) {
+            activeSuggestionIndex = filteredSuggestions.length - 1;
+          } else {
+            activeSuggestionIndex =
+              (activeSuggestionIndex - 1 + filteredSuggestions.length) % filteredSuggestions.length;
+          }
+          updateActiveSuggestion();
+        }
+      } else if (e.key === "Enter" && !suggestionContainer.hidden) {
+        e.preventDefault();
+        if (activeSuggestionIndex >= 0) {
+          acceptActiveSuggestion();
+        }
+        doSubmit();
+      } else if (e.key === "Enter") {
         doSubmit();
       } else if (e.key === "Escape") {
         this.close();
       }
     });
+    inputEl.addEventListener("input", () => {
+      activeSuggestionIndex = 0;
+      renderSuggestions(inputEl.value);
+    });
+    inputEl.addEventListener("blur", () => {
+      setTimeout(() => {
+        suggestionContainer.hidden = true;
+      }, 120);
+    });
   }
 
   onClose() {
     const { contentEl } = this;
+    const modalEl = contentEl.closest(".modal") as HTMLElement;
+    if (modalEl) {
+      modalEl.classList.remove("cw-modal");
+    }
+    if (this.viewportListener) {
+      window.removeEventListener("resize", this.viewportListener);
+      window.removeEventListener("scroll", this.viewportListener, true);
+      this.viewportListener = undefined;
+    }
+    if (this.suggestionContainerEl) {
+      this.suggestionContainerEl.remove();
+      this.suggestionContainerEl = undefined;
+    }
+    if (!this.submitted) {
+      this.onCancel?.();
+    }
     contentEl.empty();
   }
 }
@@ -128,31 +303,16 @@ export class ConfirmModal extends Modal {
   onOpen() {
     const { contentEl } = this;
 
-    // 设置 modal 容器的样式
     const modalEl = contentEl.closest(".modal") as HTMLElement;
     if (modalEl) {
-      modalEl.style.minHeight = "auto";
-      modalEl.style.height = "auto";
-      modalEl.style.maxWidth = "400px";
-      modalEl.style.width = "90%";
+      modalEl.classList.add("cw-modal");
     }
+    contentEl.classList.add("cw-modal-content");
 
-    // 设置 contentEl 的样式
-    contentEl.style.padding = "1em";
+    contentEl.createEl("h2", { text: this.title, cls: "cw-modal-title" });
+    contentEl.createEl("p", { text: this.message, cls: "cw-modal-message" });
 
-    const titleEl = contentEl.createEl("h2", { text: this.title });
-    titleEl.style.marginTop = "0";
-    titleEl.style.marginBottom = "0.8em";
-    titleEl.style.fontSize = "1.2em";
-
-    const messageEl = contentEl.createEl("p", { text: this.message });
-    messageEl.style.marginBottom = "1em";
-
-    const buttonContainer = contentEl.createDiv();
-    buttonContainer.style.display = "flex";
-    buttonContainer.style.justifyContent = "flex-end";
-    buttonContainer.style.gap = "0.5em";
-    buttonContainer.style.marginTop = "0.5em";
+    const buttonContainer = contentEl.createDiv({ cls: "cw-modal-buttons cw-modal-buttons-confirm" });
 
     const cancelBtn = buttonContainer.createEl("button", { text: "取消" });
     cancelBtn.addEventListener("click", () => {
@@ -171,6 +331,10 @@ export class ConfirmModal extends Modal {
 
   onClose() {
     const { contentEl } = this;
+    const modalEl = contentEl.closest(".modal") as HTMLElement;
+    if (modalEl) {
+      modalEl.classList.remove("cw-modal");
+    }
     contentEl.empty();
   }
 }

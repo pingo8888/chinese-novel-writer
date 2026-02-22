@@ -1,4 +1,4 @@
-import { Plugin, TFile, MarkdownView, WorkspaceLeaf, setIcon, Notice } from "obsidian";
+import { Plugin, TFile, TFolder, MarkdownView, WorkspaceLeaf, setIcon, Notice } from "obsidian";
 import { ChineseWriterSettings, DEFAULT_SETTINGS, ChineseWriterSettingTab } from "./settings";
 import { FileParser } from "./parser";
 import { TreeView, VIEW_TYPE_TREE } from "./tree-view";
@@ -177,6 +177,11 @@ export default class ChineseWriterPlugin extends Plugin {
           this.mdStatsManager.onVaultFileChanged(file.path);
           this.syncOrderOnFileDelete(file);
           this.updateH3CacheForSettingFile(file.path);
+          return;
+        }
+
+        if (file instanceof TFolder) {
+          void this.handleMappedFolderDeleted(file.path);
         }
       })
     );
@@ -190,6 +195,11 @@ export default class ChineseWriterPlugin extends Plugin {
           this.syncOrderOnFileRename(file, oldPath);
           this.updateH3CacheForSettingFile(oldPath);
           this.updateH3CacheForSettingFile(file.path);
+          return;
+        }
+
+        if (file instanceof TFolder) {
+          void this.handleMappedFolderRenamed(oldPath, file.path);
         }
       })
     );
@@ -863,6 +873,121 @@ export default class ChineseWriterPlugin extends Plugin {
       }
     }
     return null;
+  }
+
+  private replacePathPrefix(path: string, oldPrefix: string, newPrefix: string): string {
+    if (path === oldPrefix) {
+      return newPrefix;
+    }
+    if (path.startsWith(`${oldPrefix}/`)) {
+      return `${newPrefix}${path.slice(oldPrefix.length)}`;
+    }
+    return path;
+  }
+
+  private matchesPathOrChild(targetPath: string, folderPath: string): boolean {
+    return targetPath === folderPath || targetPath.startsWith(`${folderPath}/`);
+  }
+
+  private refreshSettingsTabIfOpen(): void {
+    const settingManager = (this.app as { setting?: { activeTab?: unknown } }).setting;
+    const activeTab = settingManager?.activeTab;
+    if (activeTab instanceof ChineseWriterSettingTab) {
+      activeTab.display();
+    }
+  }
+
+  private async migrateOrderDataForRenamedSettingFolder(oldFolder: string, newFolder: string): Promise<void> {
+    if (!oldFolder || !newFolder || oldFolder === newFolder) {
+      return;
+    }
+
+    const previousStates = this.orderManager.getExpandedStates(oldFolder);
+    if (Object.keys(previousStates).length > 0) {
+      await this.orderManager.setExpandedStates(newFolder, previousStates);
+      await this.orderManager.removeFolderData(oldFolder);
+    }
+
+    const oldOrder = this.orderManager.getFileOrder();
+    let changed = false;
+    const newOrder = oldOrder.map((filePath) => {
+      const updatedPath = this.replacePathPrefix(filePath, oldFolder, newFolder);
+      if (updatedPath !== filePath) {
+        changed = true;
+      }
+      return updatedPath;
+    });
+    if (changed) {
+      await this.orderManager.setFileOrder(newOrder);
+    }
+  }
+
+  private async handleMappedFolderRenamed(oldPath: string, newPath: string): Promise<void> {
+    if (!oldPath || !newPath || oldPath === newPath) {
+      return;
+    }
+
+    const renamedSettingFolders: Array<{ oldPath: string; newPath: string }> = [];
+    let mappingChanged = false;
+
+    for (const mapping of this.settings.folderMappings) {
+      if (mapping.novelFolder) {
+        const nextNovel = this.replacePathPrefix(mapping.novelFolder, oldPath, newPath);
+        if (nextNovel !== mapping.novelFolder) {
+          mapping.novelFolder = nextNovel;
+          mappingChanged = true;
+        }
+      }
+
+      if (mapping.settingFolder) {
+        const prevSetting = mapping.settingFolder;
+        const nextSetting = this.replacePathPrefix(prevSetting, oldPath, newPath);
+        if (nextSetting !== prevSetting) {
+          mapping.settingFolder = nextSetting;
+          renamedSettingFolders.push({ oldPath: prevSetting, newPath: nextSetting });
+          mappingChanged = true;
+        }
+      }
+    }
+
+    if (!mappingChanged) {
+      return;
+    }
+
+    for (const folderPair of renamedSettingFolders) {
+      await this.migrateOrderDataForRenamedSettingFolder(folderPair.oldPath, folderPair.newPath);
+    }
+
+    await this.saveSettings();
+    this.highlightManager.clearCache();
+    this.refreshSettingsTabIfOpen();
+    await this.refreshView();
+    this.highlightManager.refreshCurrentEditor();
+  }
+
+  private async handleMappedFolderDeleted(deletedFolderPath: string): Promise<void> {
+    if (!deletedFolderPath) {
+      return;
+    }
+
+    const affected = this.settings.folderMappings.some((mapping) => {
+      const novelAffected = mapping.novelFolder
+        ? this.matchesPathOrChild(mapping.novelFolder, deletedFolderPath)
+        : false;
+      const settingAffected = mapping.settingFolder
+        ? this.matchesPathOrChild(mapping.settingFolder, deletedFolderPath)
+        : false;
+      return novelAffected || settingAffected;
+    });
+
+    if (!affected) {
+      return;
+    }
+
+    this.highlightManager.clearCache();
+    this.refreshSettingsTabIfOpen();
+    await this.refreshView();
+    this.highlightManager.refreshCurrentEditor();
   }
 
   /**

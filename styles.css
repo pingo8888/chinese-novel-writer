@@ -23,6 +23,88 @@
   border-radius: 4px;
 }
 
+.cw-folder-mapping-name {
+  color: var(--text-normal);
+}
+
+.cw-folder-mapping-missing {
+  color: var(--text-error);
+  margin-left: 2px;
+}
+
+/* 弹窗样式（modals.ts） */
+.cw-modal {
+  min-height: auto;
+  height: auto;
+  max-width: 400px;
+  width: 90%;
+}
+
+.cw-modal-content {
+  padding: 1em;
+}
+
+.cw-modal-title {
+  margin-top: 0;
+  margin-bottom: 0.8em;
+  font-size: 1.2em;
+}
+
+.cw-modal-message {
+  margin-bottom: 1em;
+}
+
+.cw-modal-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5em;
+}
+
+.cw-modal-buttons-confirm {
+  margin-top: 0.5em;
+}
+
+.cw-input-wrapper {
+  position: relative;
+  margin-bottom: 1em;
+}
+
+.cw-text-input {
+  width: 100%;
+  padding: 0.5em;
+}
+
+.cw-suggestion-container {
+  --cw-suggestion-row-height: 26px;
+  z-index: 1000;
+  max-height: calc(var(--cw-suggestion-row-height) * 8);
+  overflow-y: auto;
+  background-color: var(--background-primary);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+}
+
+.cw-suggestion-container-floating {
+  position: fixed;
+}
+
+.cw-suggestion-row {
+  min-height: var(--cw-suggestion-row-height);
+  padding: 0 0.7em;
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.cw-suggestion-row.is-active {
+  background-color: var(--background-modifier-hover);
+}
+
 /* 关键字高亮默认样式（会被动态样式覆盖） */
 .chinese-writer-highlight {
   background-color: #FFFFFF00;

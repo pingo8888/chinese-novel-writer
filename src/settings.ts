@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, TFolder } from "obsidian";
 import type ChineseWriterPlugin from "./main";
 
 /**
@@ -711,11 +711,14 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       return;
     }
 
-    this.plugin.settings.folderMappings.forEach((mapping, index) => {
-      const displayText = `${mapping.novelFolder || "未设置"} → ${mapping.settingFolder || "未设置"}`;
+    this.plugin.settings.folderMappings.forEach((mapping) => {
+      const novelFolder = mapping.novelFolder || "未设置";
+      const settingFolder = mapping.settingFolder || "未设置";
+      const novelMissing = !!mapping.novelFolder && !this.isFolderExisting(mapping.novelFolder);
+      const settingMissing = !!mapping.settingFolder && !this.isFolderExisting(mapping.settingFolder);
 
-      new Setting(container)
-        .setName(displayText)
+      const mappingSetting = new Setting(container)
+        .setName("")
         .setClass("folder-mapping-item")
         .addButton((button) =>
           button
@@ -740,7 +743,24 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
               this.display();
             })
         );
+
+      mappingSetting.nameEl.empty();
+      this.appendFolderDisplay(mappingSetting.nameEl, novelFolder, novelMissing);
+      mappingSetting.nameEl.createSpan({ text: " → ", cls: "cw-folder-mapping-arrow" });
+      this.appendFolderDisplay(mappingSetting.nameEl, settingFolder, settingMissing);
     });
+  }
+
+  private appendFolderDisplay(parent: HTMLElement, folderName: string, isMissing: boolean): void {
+    parent.createSpan({ text: folderName, cls: "cw-folder-mapping-name" });
+    if (isMissing) {
+      parent.createSpan({ text: "（已丢失）", cls: "cw-folder-mapping-missing" });
+    }
+  }
+
+  private isFolderExisting(folderPath: string): boolean {
+    const folder = this.app.vault.getAbstractFileByPath(folderPath);
+    return folder instanceof TFolder;
   }
 
   /**
@@ -749,6 +769,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
   private async editMapping(mapping: FolderMapping): Promise<void> {
     const { TextInputModal } = await import("./modals");
     const oldSettingFolder = mapping.settingFolder;
+    const folderSuggestions = this.getAllFolderPaths();
 
     // 第一次弹出：编辑小说库路径
     new TextInputModal(
@@ -761,38 +782,37 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           return;
         }
 
-        // 延迟打开第二个弹出框，确保第一个弹出框完全关闭
-        setTimeout(() => {
-          // 第二次弹出：编辑设定库路径
-          new TextInputModal(
-            this.app,
-            "编辑对应关系 - 步骤 2/2",
-            "请输入设定库路径（相对于仓库根目录）",
-            mapping.settingFolder,
-            async (settingFolder) => {
-              if (!settingFolder.trim()) {
-                return;
-              }
-
-              // 更新对应关系
-              mapping.novelFolder = novelFolder.trim();
-              mapping.settingFolder = settingFolder.trim();
-
-              if (oldSettingFolder) {
-                await this.plugin.orderManager.removeFolderData(oldSettingFolder);
-              }
-              await this.plugin.saveSettings();
-
-              // 延迟刷新界面和编辑器，确保弹出框完全关闭
-              setTimeout(async () => {
-                await this.plugin.refreshView();
-                this.refreshEditorHighlight();
-                this.display();
-              }, 50);
+        // 第二次弹出：编辑设定库路径（紧接第一步，避免背景闪烁）
+        new TextInputModal(
+          this.app,
+          "编辑对应关系 - 步骤 2/2",
+          "请输入设定库路径（相对于仓库根目录）",
+          mapping.settingFolder,
+          async (settingFolder) => {
+            if (!settingFolder.trim()) {
+              return;
             }
-          ).open();
-        }, 100);
-      }
+
+            // 更新对应关系
+            mapping.novelFolder = novelFolder.trim();
+            mapping.settingFolder = settingFolder.trim();
+
+            if (oldSettingFolder) {
+              await this.plugin.orderManager.removeFolderData(oldSettingFolder);
+            }
+            await this.plugin.saveSettings();
+
+            // 延迟刷新界面和编辑器，确保弹出框完全关闭
+            setTimeout(async () => {
+              await this.plugin.refreshView();
+              this.refreshEditorHighlight();
+              this.display();
+            }, 50);
+          },
+          folderSuggestions
+        ).open();
+      },
+      folderSuggestions
     ).open();
   }
 
@@ -806,6 +826,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
 
     this.isAddingMapping = true;
     const { TextInputModal } = await import("./modals");
+    const folderSuggestions = this.getAllFolderPaths();
 
     // 第一次弹出：输入小说库路径
     new TextInputModal(
@@ -819,42 +840,56 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           return;
         }
 
-        // 延迟打开第二个弹出框，确保第一个弹出框完全关闭
-        setTimeout(() => {
-          // 第二次弹出：输入设定库路径
-          new TextInputModal(
-            this.app,
-            "添加对应关系 - 步骤 2/2",
-            "请输入设定库路径（相对于仓库根目录）",
-            "",
-            async (settingFolder) => {
-              if (!settingFolder.trim()) {
-                this.isAddingMapping = false;
-                return;
-              }
-
-              // 创建新的对应关系
-              const newMapping: FolderMapping = {
-                id: Date.now().toString(),
-                novelFolder: novelFolder.trim(),
-                settingFolder: settingFolder.trim()
-              };
-
-              this.plugin.settings.folderMappings.push(newMapping);
-              await this.plugin.saveSettings();
-
-              // 延迟刷新界面和编辑器，确保弹出框完全关闭
-              setTimeout(async () => {
-                await this.plugin.refreshView();
-                this.refreshEditorHighlight();
-                this.display();
-                this.isAddingMapping = false; // 完成后重置标志
-              }, 50);
+        // 第二次弹出：输入设定库路径（紧接第一步，避免背景闪烁）
+        new TextInputModal(
+          this.app,
+          "添加对应关系 - 步骤 2/2",
+          "请输入设定库路径（相对于仓库根目录）",
+          "",
+          async (settingFolder) => {
+            if (!settingFolder.trim()) {
+              this.isAddingMapping = false;
+              return;
             }
-          ).open();
-        }, 100);
+
+            // 创建新的对应关系
+            const newMapping: FolderMapping = {
+              id: Date.now().toString(),
+              novelFolder: novelFolder.trim(),
+              settingFolder: settingFolder.trim()
+            };
+
+            this.plugin.settings.folderMappings.push(newMapping);
+            await this.plugin.saveSettings();
+
+            // 延迟刷新界面和编辑器，确保弹出框完全关闭
+            setTimeout(async () => {
+              await this.plugin.refreshView();
+              this.refreshEditorHighlight();
+              this.display();
+              this.isAddingMapping = false; // 完成后重置标志
+            }, 50);
+          },
+          folderSuggestions,
+          () => {
+            this.isAddingMapping = false;
+          }
+        ).open();
+      },
+      folderSuggestions,
+      () => {
+        this.isAddingMapping = false;
       }
     ).open();
+  }
+
+  private getAllFolderPaths(): string[] {
+    return this.app.vault
+      .getAllLoadedFiles()
+      .filter((file): file is TFolder => file instanceof TFolder)
+      .map((folder) => folder.path)
+      .filter((path) => path.trim().length > 0)
+      .sort((a, b) => a.localeCompare(b, "zh-Hans-CN"));
   }
 
   /**
