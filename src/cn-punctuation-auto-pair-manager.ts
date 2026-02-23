@@ -13,6 +13,7 @@ const CN_PUNCTUATION_PAIRS: Record<string, string> = {
   "〔": "〕",
   "「": "」",
   "『": "』",
+  "｛": "｝",
 };
 
 export class CnPunctuationAutoPairManager {
