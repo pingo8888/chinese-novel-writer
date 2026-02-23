@@ -1,4 +1,4 @@
-import { App, TFile, MarkdownView, editorLivePreviewField, setIcon } from "obsidian";
+import { App, TFile, MarkdownView, setIcon } from "obsidian";
 import type ChineseWriterPlugin from "./main";
 import { EditorView, Decoration, DecorationSet, ViewPlugin, ViewUpdate, PluginValue } from "@codemirror/view";
 import { RangeSetBuilder, Transaction } from "@codemirror/state";
@@ -21,6 +21,18 @@ interface H3SectionData {
   bodyLines: string[];
 }
 
+const CN_BRACKET_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  ["《", "》"],
+  ["（", "）"],
+  ["【", "】"],
+  ["〖", "〗"],
+  ["〈", "〉"],
+  ["〔", "〕"],
+  ["「", "」"],
+  ["『", "』"],
+  ["｛", "｝"],
+];
+
 /**
  * 高亮管理器
  * 负责在编辑器中高亮显示设定库中的关键字
@@ -39,6 +51,12 @@ export class HighlightManager {
   private currentPreviewData: KeywordPreviewData | null = null;
   private previewHideTimer: number | null = null;
   private readonly previewHideDelayMs = 450;
+  private previewHoverRafId: number | null = null;
+  private pendingPreviewHoverEvent: MouseEvent | null = null;
+  private treePreviewInFlightKey = "";
+  private treePreviewInFlightPromise: Promise<void> | null = null;
+  private treePreviewRunId = 0;
+  private markdownViewCache: WeakMap<EditorView, MarkdownView> = new WeakMap();
 
   constructor(plugin: ChineseWriterPlugin) {
     this.plugin = plugin;
@@ -198,6 +216,15 @@ export class HighlightManager {
    * 从 CodeMirror EditorView 找到对应的 MarkdownView
    */
   private getMarkdownViewForEditorView(editorView: EditorView): MarkdownView | null {
+    const cached = this.markdownViewCache.get(editorView);
+    if (cached) {
+      const cachedCmView = (cached.editor as unknown as { cm?: EditorView }).cm;
+      if (cachedCmView === editorView) {
+        return cached;
+      }
+      this.markdownViewCache.delete(editorView);
+    }
+
     const leaves = this.app.workspace.getLeavesOfType("markdown");
     for (const leaf of leaves) {
       const view = leaf.view;
@@ -205,6 +232,7 @@ export class HighlightManager {
 
       const cmView = (view.editor as unknown as { cm?: EditorView }).cm;
       if (cmView === editorView) {
+        this.markdownViewCache.set(editorView, view);
         return view;
       }
     }
@@ -376,7 +404,7 @@ export class HighlightManager {
     });
 
     this.plugin.registerDomEvent(document, "mousemove", (event: MouseEvent) => {
-      this.handlePreviewHover(event);
+      this.queuePreviewHover(event);
     });
     this.plugin.registerDomEvent(document, "mousedown", (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
@@ -395,10 +423,31 @@ export class HighlightManager {
 
   private destroyHoverPreview(): void {
     this.clearScheduledHidePreview();
+    if (this.previewHoverRafId !== null) {
+      window.cancelAnimationFrame(this.previewHoverRafId);
+      this.previewHoverRafId = null;
+    }
+    this.pendingPreviewHoverEvent = null;
     if (this.previewEl) {
       this.previewEl.remove();
       this.previewEl = null;
     }
+  }
+
+  private queuePreviewHover(event: MouseEvent): void {
+    this.pendingPreviewHoverEvent = event;
+    if (this.previewHoverRafId !== null) {
+      return;
+    }
+
+    this.previewHoverRafId = window.requestAnimationFrame(() => {
+      this.previewHoverRafId = null;
+      const latestEvent = this.pendingPreviewHoverEvent;
+      this.pendingPreviewHoverEvent = null;
+      if (latestEvent) {
+        this.handlePreviewHover(latestEvent);
+      }
+    });
   }
 
   private handlePreviewHover(event: MouseEvent): void {
@@ -464,7 +513,29 @@ export class HighlightManager {
       return;
     }
 
-    await this.extractKeywordsFromSettingFolder(settingFolder);
+    const requestKey = `${settingFolder}::${filePath}::${h1Title}::${h2Title}`;
+    const runId = ++this.treePreviewRunId;
+
+    if (this.treePreviewInFlightKey === requestKey && this.treePreviewInFlightPromise) {
+      await this.treePreviewInFlightPromise;
+    } else {
+      const loadPromise = this.extractKeywordsFromSettingFolder(settingFolder).then(() => undefined);
+      this.treePreviewInFlightKey = requestKey;
+      this.treePreviewInFlightPromise = loadPromise;
+      try {
+        await loadPromise;
+      } finally {
+        if (this.treePreviewInFlightKey === requestKey) {
+          this.treePreviewInFlightKey = "";
+          this.treePreviewInFlightPromise = null;
+        }
+      }
+    }
+
+    if (runId !== this.treePreviewRunId) {
+      return;
+    }
+
     const previewData = this.findTreeNodePreviewData(settingFolder, filePath, h1Title, h2Title, keyword);
     if (!previewData) {
       this.scheduleHidePreview(120);
@@ -762,17 +833,25 @@ export class HighlightManager {
     }
 
     const warningIndexes = new Set<number>();
+    const openDoubleQuoteIndexes: number[] = [];
+    const openSingleQuoteIndexes: number[] = [];
+    const otherPairOpenIndexes = new Map<string, number[]>();
+    const otherPairCloseToOpen = new Map<string, string>();
+    if (config.otherCnPairs) {
+      for (const [openChar, closeChar] of CN_BRACKET_PAIRS) {
+        otherPairOpenIndexes.set(openChar, []);
+        otherPairCloseToOpen.set(closeChar, openChar);
+      }
+    }
 
     for (let i = 0; i < text.length; i++) {
-      const ch = text[i];
+      const ch = text[i] ?? "";
       if (config.comma && ch === ",") warningIndexes.add(i);
       if (config.period && ch === ".") {
         const prevChar = i > 0 ? (text[i - 1] ?? "") : "";
         const nextChar = i + 1 < text.length ? (text[i + 1] ?? "") : "";
         const isBetweenDigits = /\d/.test(prevChar) && /\d/.test(nextChar);
-        if (!isBetweenDigits) {
-          warningIndexes.add(i);
-        }
+        if (!isBetweenDigits) warningIndexes.add(i);
       }
       if (config.colon && ch === ":") warningIndexes.add(i);
       if (config.semicolon && ch === ";") warningIndexes.add(i);
@@ -780,12 +859,8 @@ export class HighlightManager {
       if (config.question && ch === "?") warningIndexes.add(i);
       if (config.doubleQuote && ch === "\"") warningIndexes.add(i);
       if (config.singleQuote && ch === "'") warningIndexes.add(i);
-    }
 
-    if (config.doubleQuote) {
-      const openDoubleQuoteIndexes: number[] = [];
-      for (let i = 0; i < text.length; i++) {
-        const ch = text[i];
+      if (config.doubleQuote) {
         if (ch === "“") {
           openDoubleQuoteIndexes.push(i);
         } else if (ch === "”") {
@@ -796,15 +871,8 @@ export class HighlightManager {
           }
         }
       }
-      for (const index of openDoubleQuoteIndexes) {
-        warningIndexes.add(index);
-      }
-    }
 
-    if (config.singleQuote) {
-      const openSingleQuoteIndexes: number[] = [];
-      for (let i = 0; i < text.length; i++) {
-        const ch = text[i];
+      if (config.singleQuote) {
         if (ch === "‘") {
           openSingleQuoteIndexes.push(i);
         } else if (ch === "’") {
@@ -815,53 +883,32 @@ export class HighlightManager {
           }
         }
       }
-      for (const index of openSingleQuoteIndexes) {
-        warningIndexes.add(index);
+
+      if (config.otherCnPairs) {
+        const openStack = otherPairOpenIndexes.get(ch);
+        if (openStack) {
+          openStack.push(i);
+        } else {
+          const openChar = otherPairCloseToOpen.get(ch);
+          if (openChar) {
+            const targetStack = otherPairOpenIndexes.get(openChar);
+            if (targetStack && targetStack.length > 0) {
+              targetStack.pop();
+            } else {
+              warningIndexes.add(i);
+            }
+          }
+        }
       }
     }
 
-    if (config.otherCnPairs) {
-      const pairConfigs: Array<[string, string]> = [
-        ["《", "》"],
-        ["（", "）"],
-        ["【", "】"],
-        ["〖", "〗"],
-        ["〈", "〉"],
-        ["〔", "〕"],
-        ["「", "」"],
-        ["『", "』"],
-        ["｛", "｝"],
-      ];
-      for (const [openChar, closeChar] of pairConfigs) {
-        const indexes = this.collectUnmatchedPairIndexes(text, openChar, closeChar);
-        for (const index of indexes) {
-          warningIndexes.add(index);
-        }
-      }
+    for (const index of openDoubleQuoteIndexes) warningIndexes.add(index);
+    for (const index of openSingleQuoteIndexes) warningIndexes.add(index);
+    for (const openIndexes of otherPairOpenIndexes.values()) {
+      for (const index of openIndexes) warningIndexes.add(index);
     }
 
     return Array.from(warningIndexes).sort((a, b) => a - b);
-  }
-
-  private collectUnmatchedPairIndexes(text: string, openChar: string, closeChar: string): number[] {
-    const warningIndexes: number[] = [];
-    const openIndexes: number[] = [];
-
-    for (let i = 0; i < text.length; i++) {
-      const ch = text[i];
-      if (ch === openChar) {
-        openIndexes.push(i);
-      } else if (ch === closeChar) {
-        if (openIndexes.length > 0) {
-          openIndexes.pop();
-        } else {
-          warningIndexes.push(i);
-        }
-      }
-    }
-
-    warningIndexes.push(...openIndexes);
-    return warningIndexes;
   }
 
   /**
@@ -906,135 +953,88 @@ export class HighlightManager {
       return { text, changedCount: 0 };
     }
 
-    let working = text;
+    const chars = text.split("");
     let changedCount = 0;
-
-    const replaceChars = (
-      input: string,
-      matcher: (ch: string, index: number, source: string) => boolean,
-      replacement: string
-    ): { text: string; count: number } => {
-      let count = 0;
-      const chars = input.split("");
-      for (let i = 0; i < chars.length; i++) {
-        const ch = chars[i] ?? "";
-        if (!matcher(ch, i, input)) continue;
-        if (ch !== replacement) {
-          chars[i] = replacement;
-          count++;
-        }
+    let needOpenDoubleQuote = true;
+    let needOpenSingleQuote = true;
+    const otherPairNeedOpen = new Map<string, boolean>();
+    const otherPairOpenToClose = new Map<string, string>();
+    const otherPairCloseToOpen = new Map<string, string>();
+    if (config.otherCnPairs) {
+      for (const [openChar, closeChar] of CN_BRACKET_PAIRS) {
+        otherPairNeedOpen.set(openChar, true);
+        otherPairOpenToClose.set(openChar, closeChar);
+        otherPairCloseToOpen.set(closeChar, openChar);
       }
-      return { text: chars.join(""), count };
+    }
+
+    const replaceAt = (index: number, expected: string): void => {
+      if (chars[index] !== expected) {
+        chars[index] = expected;
+        changedCount++;
+      }
     };
 
-    if (config.comma) {
-      const result = replaceChars(working, (ch) => ch === ",", "，");
-      working = result.text;
-      changedCount += result.count;
-    }
-
-    if (config.period) {
-      const result = replaceChars(
-        working,
-        (ch, i, source) => {
-          if (ch !== ".") return false;
-          const prevChar = i > 0 ? (source[i - 1] ?? "") : "";
-          const nextChar = i + 1 < source.length ? (source[i + 1] ?? "") : "";
-          const isBetweenDigits = /\d/.test(prevChar) && /\d/.test(nextChar);
-          return !isBetweenDigits;
-        },
-        "。"
-      );
-      working = result.text;
-      changedCount += result.count;
-    }
-
-    if (config.semicolon) {
-      const result = replaceChars(working, (ch) => ch === ";", "；");
-      working = result.text;
-      changedCount += result.count;
-    }
-
-    if (config.exclamation) {
-      const result = replaceChars(working, (ch) => ch === "!", "！");
-      working = result.text;
-      changedCount += result.count;
-    }
-
-    if (config.question) {
-      const result = replaceChars(working, (ch) => ch === "?", "？");
-      working = result.text;
-      changedCount += result.count;
-    }
-
-    if (config.colon) {
-      const result = replaceChars(working, (ch) => ch === ":", "：");
-      working = result.text;
-      changedCount += result.count;
-    }
-
-    if (config.doubleQuote) {
-      const result = this.normalizeQuotePairs(working, new Set(["\"", "“", "”"]), "“", "”");
-      working = result.text;
-      changedCount += result.count;
-    }
-
-    if (config.singleQuote) {
-      const result = this.normalizeQuotePairs(working, new Set(["'", "‘", "’"]), "‘", "’");
-      working = result.text;
-      changedCount += result.count;
-    }
-
-    if (config.otherCnPairs) {
-      const pairConfigs: Array<[string, string]> = [
-        ["《", "》"],
-        ["（", "）"],
-        ["【", "】"],
-        ["〖", "〗"],
-        ["〈", "〉"],
-        ["〔", "〕"],
-        ["「", "」"],
-        ["『", "』"],
-        ["｛", "｝"],
-      ];
-      for (const [openChar, closeChar] of pairConfigs) {
-        const result = this.normalizeQuotePairs(
-          working,
-          new Set([openChar, closeChar]),
-          openChar,
-          closeChar
-        );
-        working = result.text;
-        changedCount += result.count;
-      }
-    }
-
-    return { text: working, changedCount };
-  }
-
-  private normalizeQuotePairs(
-    text: string,
-    quoteChars: Set<string>,
-    openQuote: string,
-    closeQuote: string
-  ): { text: string; count: number } {
-    let needOpen = true;
-    let count = 0;
-    const chars = text.split("");
-
     for (let i = 0; i < chars.length; i++) {
-      const ch = chars[i] ?? "";
-      if (!quoteChars.has(ch)) continue;
+      let ch = chars[i] ?? "";
 
-      const nextQuote = needOpen ? openQuote : closeQuote;
-      if (ch !== nextQuote) {
-        chars[i] = nextQuote;
-        count++;
+      if (config.comma && ch === ",") {
+        replaceAt(i, "，");
+        ch = chars[i] ?? "";
       }
-      needOpen = !needOpen;
+      if (config.period && ch === ".") {
+        const prevChar = i > 0 ? (text[i - 1] ?? "") : "";
+        const nextChar = i + 1 < text.length ? (text[i + 1] ?? "") : "";
+        const isBetweenDigits = /\d/.test(prevChar) && /\d/.test(nextChar);
+        if (!isBetweenDigits) {
+          replaceAt(i, "。");
+          ch = chars[i] ?? "";
+        }
+      }
+      if (config.semicolon && ch === ";") {
+        replaceAt(i, "；");
+        ch = chars[i] ?? "";
+      }
+      if (config.exclamation && ch === "!") {
+        replaceAt(i, "！");
+        ch = chars[i] ?? "";
+      }
+      if (config.question && ch === "?") {
+        replaceAt(i, "？");
+        ch = chars[i] ?? "";
+      }
+      if (config.colon && ch === ":") {
+        replaceAt(i, "：");
+        ch = chars[i] ?? "";
+      }
+
+      if (config.doubleQuote && (ch === "\"" || ch === "“" || ch === "”")) {
+        const expected = needOpenDoubleQuote ? "“" : "”";
+        replaceAt(i, expected);
+        needOpenDoubleQuote = !needOpenDoubleQuote;
+        ch = chars[i] ?? "";
+      }
+
+      if (config.singleQuote && (ch === "'" || ch === "‘" || ch === "’")) {
+        const expected = needOpenSingleQuote ? "‘" : "’";
+        replaceAt(i, expected);
+        needOpenSingleQuote = !needOpenSingleQuote;
+        ch = chars[i] ?? "";
+      }
+
+      if (config.otherCnPairs) {
+        const openChar = otherPairOpenToClose.has(ch) ? ch : (otherPairCloseToOpen.get(ch) ?? "");
+        if (openChar) {
+          const closeChar = otherPairOpenToClose.get(openChar) ?? "";
+          const needOpen = otherPairNeedOpen.get(openChar) ?? true;
+          const expected = needOpen ? openChar : closeChar;
+          replaceAt(i, expected);
+          otherPairNeedOpen.set(openChar, !needOpen);
+        }
+      }
     }
 
-    return { text: chars.join(""), count };
+    return { text: chars.join(""), changedCount };
   }
 
   /**
