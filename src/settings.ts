@@ -636,6 +636,39 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
+
+
+    // 文件打开行为设置
+    containerEl.createEl("h3", { text: "文件打开行为" });
+
+    new Setting(containerEl)
+      .setName("在新标签页打开")
+      .setDesc("通过插件内相关功能打开或新建文件时，是否在新标签页打开（已打开则复用现有标签）")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.openInNewTab)
+          .onChange(async (value) => {
+            this.plugin.settings.openInNewTab = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // 其他便捷功能
+    containerEl.createEl("h3", { text: "其他便捷功能" });
+
+    new Setting(containerEl)
+      .setName("启用字符数统计")
+      .setDesc("关闭后不显示统计，且不在后台执行字符统计")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.enableMdStats)
+          .onChange(async (value) => {
+            this.plugin.settings.enableMdStats = value;
+            await this.plugin.saveSettings();
+            this.plugin.mdStatsManager.setEnabled(value);
+          })
+      );
+
     new Setting(containerEl)
       .setName("编辑区标题图标")
       .setDesc("在编辑视图各级标题前显示对应等级图标")
@@ -659,38 +692,6 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
             this.plugin.settings.enableEditorJustify = value;
             await this.plugin.saveSettings();
             this.updateEditorTypographyStyles();
-          })
-      );
-
-    // 文件打开行为设置
-    containerEl.createEl("h3", { text: "文件打开行为" });
-
-    new Setting(containerEl)
-      .setName("在新标签页打开")
-      .setDesc("通过插件内相关功能打开或新建文件时，是否在新标签页打开（已打开则复用现有标签）")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.openInNewTab)
-          .onChange(async (value) => {
-            this.plugin.settings.openInNewTab = value;
-            await this.plugin.saveSettings();
-          })
-      );
-
-
-    // 其他便捷功能
-    containerEl.createEl("h3", { text: "其他便捷功能" });
-
-    new Setting(containerEl)
-      .setName("启用字符数统计")
-      .setDesc("关闭后不显示统计，且不在后台执行字符统计")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.enableMdStats)
-          .onChange(async (value) => {
-            this.plugin.settings.enableMdStats = value;
-            await this.plugin.saveSettings();
-            this.plugin.mdStatsManager.setEnabled(value);
           })
       );
 
