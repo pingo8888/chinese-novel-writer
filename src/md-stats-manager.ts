@@ -16,6 +16,7 @@ interface FileCharCacheEntry {
   mtime: number;
   size: number;
   count: number;
+  version: number;
 }
 
 interface FolderStats {
@@ -71,7 +72,10 @@ class HeadingLevelIconWidget extends WidgetType {
 export class MdStatsManager {
   private plugin: ChineseWriterPlugin;
   private fileCharCache: Map<string, FileCharCacheEntry> = new Map();
+  private pendingFileCharCount: Map<string, Promise<number>> = new Map();
   private folderStatsCache: Map<string, FolderStats> = new Map();
+  private editorViewToMarkdownView: WeakMap<EditorView, MarkdownView> = new WeakMap();
+  private fileCharCacheVersion = 0;
   private refreshTimer: number | null = null;
   private mutationObserver: MutationObserver | null = null;
   private observedExplorerRoot: HTMLElement | null = null;
@@ -130,8 +134,7 @@ export class MdStatsManager {
             settingChanged ||
             update.docChanged ||
             update.viewportChanged ||
-            update.geometryChanged ||
-            update.selectionSet
+            update.geometryChanged
           ) {
             this.headingIconVersionSeen = manager.getHeadingIconRenderVersion();
             this.decorations = manager.buildHeadingIconDecorations(update.view);
@@ -170,6 +173,7 @@ export class MdStatsManager {
     }
     if (filePath) {
       this.fileCharCache.delete(filePath);
+      this.pendingFileCharCount.delete(filePath);
     }
     this.folderStatsCache.clear();
     this.scheduleFileExplorerRefresh();
@@ -209,6 +213,16 @@ export class MdStatsManager {
     this.observedExplorerRoot = null;
     this.statusBarEl?.remove();
     this.statusBarEl = null;
+  }
+
+  private updateFileCharCache(path: string, mtime: number, size: number, count: number): void {
+    this.fileCharCacheVersion += 1;
+    this.fileCharCache.set(path, {
+      mtime,
+      size,
+      count,
+      version: this.fileCharCacheVersion,
+    });
   }
 
   private clearFileExplorerBadges(): void {
@@ -266,15 +280,15 @@ export class MdStatsManager {
       return;
     }
 
+    const folderPaths = folderTitleEls.map((el) => (el.getAttribute("data-path") ?? "").trim());
+    const folderStatsMap = await this.getFolderStatsForPaths(folderPaths);
     for (const folderTitleEl of folderTitleEls) {
       const folderPath = (folderTitleEl.getAttribute("data-path") ?? "").trim();
-      const stats = await this.getFolderStats(folderPath);
+      const stats = folderStatsMap.get(folderPath) ?? { fileCount: 0, charCount: 0 };
       this.renderFolderStatsBadge(folderTitleEl, stats);
     }
 
-    for (const fileTitleEl of fileTitleEls) {
-      await this.renderFileStatsBadge(fileTitleEl);
-    }
+    await Promise.all(fileTitleEls.map((fileTitleEl) => this.renderFileStatsBadge(fileTitleEl)));
   }
 
   private handleEditorRealtimeUpdate(update: ViewUpdate): void {
@@ -285,45 +299,60 @@ export class MdStatsManager {
       return;
     }
 
-    const liveDocText = update.state.doc.toString();
-    const fileCount = this.countMarkdownCharacters(liveDocText);
     const selectedCount = this.countMarkdownCharacters(this.getSelectedTextFromState(update.state));
+    const cachedFileCount = this.fileCharCache.get(file.path)?.count;
+    const fileCount =
+      update.docChanged || cachedFileCount === undefined
+        ? this.countMarkdownCharacters(update.state.doc.toString())
+        : cachedFileCount;
     this.setStatusBarText(fileCount, selectedCount);
 
     if (update.docChanged) {
-      const previousFileCount = this.countMarkdownCharacters(update.startState.doc.toString());
-      const delta = fileCount - previousFileCount;
-      this.fileCharCache.set(file.path, {
-        mtime: file.stat.mtime,
-        size: file.stat.size,
-        count: fileCount,
-      });
-      if (delta !== 0) {
-        this.applyFolderStatsDelta(file.path, delta);
-        this.renderVisibleFolderBadgesByPaths(this.getAncestorFolderPaths(file.path));
+      const previousFileCount = this.fileCharCache.get(file.path)?.count;
+      this.updateFileCharCache(file.path, file.stat.mtime, file.stat.size, fileCount);
+      if (previousFileCount === undefined) {
+        this.folderStatsCache.clear();
+        this.scheduleFileExplorerRefresh();
+      } else {
+        const delta = fileCount - previousFileCount;
+        if (delta !== 0) {
+          this.applyFolderStatsDelta(file.path, delta);
+          this.renderVisibleFolderBadgesByPaths(this.getAncestorFolderPaths(file.path));
+        }
       }
       this.renderVisibleFileBadgeByPath(file.path, fileCount);
     }
   }
 
-  private getSelectedTextFromState(state: EditorView["state"]): string {
-    const parts: string[] = [];
-    for (const range of state.selection.ranges) {
-      if (range.empty) continue;
-      parts.push(state.doc.sliceString(range.from, range.to));
+  private isMarkdownViewMatchingEditorView(view: MarkdownView, editorView: EditorView): boolean {
+    const cmView = (view.editor as unknown as { cm?: EditorView }).cm;
+    return cmView === editorView;
+  }
+
+  private cacheMarkdownViewEditor(view: MarkdownView): void {
+    const cmView = (view.editor as unknown as { cm?: EditorView }).cm;
+    if (!cmView) {
+      return;
     }
-    return parts.join("");
+    this.editorViewToMarkdownView.set(cmView, view);
   }
 
   private getMarkdownViewForEditorView(editorView: EditorView): MarkdownView | null {
+    const cached = this.editorViewToMarkdownView.get(editorView);
+    if (cached && this.isMarkdownViewMatchingEditorView(cached, editorView)) {
+      return cached;
+    }
+
     const leaves = this.plugin.app.workspace.getLeavesOfType("markdown");
     for (const leaf of leaves) {
       const view = leaf.view;
       if (!(view instanceof MarkdownView)) continue;
-      const cmView = (view.editor as unknown as { cm?: EditorView }).cm;
-      if (cmView === editorView) {
-        return view;
+      if (!this.isMarkdownViewMatchingEditorView(view, editorView)) {
+        this.cacheMarkdownViewEditor(view);
+        continue;
       }
+      this.cacheMarkdownViewEditor(view);
+      return view;
     }
     return null;
   }
@@ -384,6 +413,15 @@ export class MdStatsManager {
       }
     }
     return result;
+  }
+
+  private getSelectedTextFromState(state: EditorView["state"]): string {
+    const parts: string[] = [];
+    for (const range of state.selection.ranges) {
+      if (range.empty) continue;
+      parts.push(state.doc.sliceString(range.from, range.to));
+    }
+    return parts.join("");
   }
 
   private buildHeadingIconDecorations(view: EditorView): DecorationSet {
@@ -556,28 +594,54 @@ export class MdStatsManager {
     badgeEl.setText(text);
   }
 
-  private async getFolderStats(folderPath: string): Promise<FolderStats> {
-    const cached = this.folderStatsCache.get(folderPath);
-    if (cached) {
-      return cached;
+  private async getFolderStatsForPaths(folderPaths: string[]): Promise<Map<string, FolderStats>> {
+    const requestedPaths = new Set(folderPaths.map((path) => path.trim()));
+    const result = new Map<string, FolderStats>();
+    const missingPaths: string[] = [];
+
+    for (const path of requestedPaths) {
+      const cached = this.folderStatsCache.get(path);
+      if (cached) {
+        result.set(path, cached);
+        continue;
+      }
+      missingPaths.push(path);
     }
 
-    const files = this.plugin.app.vault.getMarkdownFiles().filter((file) => {
-      if (folderPath === "") return true;
-      return file.path.startsWith(`${folderPath}/`);
-    });
-
-    let charCount = 0;
-    for (const file of files) {
-      charCount += await this.getFileCharCount(file);
+    if (missingPaths.length === 0) {
+      return result;
     }
 
-    const stats: FolderStats = {
-      fileCount: files.length,
-      charCount,
-    };
-    this.folderStatsCache.set(folderPath, stats);
-    return stats;
+    const missingPathSet = new Set(missingPaths);
+    const aggregated = new Map<string, FolderStats>();
+    const files = this.plugin.app.vault.getMarkdownFiles();
+    const counts = await Promise.all(files.map(async (file) => this.getFileCharCount(file)));
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file) {
+        continue;
+      }
+      const fileCount = counts[i] ?? 0;
+      const ancestors = this.getAncestorFolderPaths(file.path);
+      for (const ancestor of ancestors) {
+        if (!missingPathSet.has(ancestor)) {
+          continue;
+        }
+        const current = aggregated.get(ancestor) ?? { fileCount: 0, charCount: 0 };
+        current.fileCount += 1;
+        current.charCount += fileCount;
+        aggregated.set(ancestor, current);
+      }
+    }
+
+    for (const path of missingPaths) {
+      const stats = aggregated.get(path) ?? { fileCount: 0, charCount: 0 };
+      this.folderStatsCache.set(path, stats);
+      result.set(path, stats);
+    }
+
+    return result;
   }
 
   private async getFileCharCount(file: TFile): Promise<number> {
@@ -586,14 +650,30 @@ export class MdStatsManager {
       return cached.count;
     }
 
-    const content = await this.plugin.app.vault.read(file);
-    const count = this.countMarkdownCharacters(content);
-    this.fileCharCache.set(file.path, {
-      mtime: file.stat.mtime,
-      size: file.stat.size,
-      count,
-    });
-    return count;
+    const pending = this.pendingFileCharCount.get(file.path);
+    if (pending) {
+      return pending;
+    }
+
+    const startVersion = this.fileCharCache.get(file.path)?.version ?? 0;
+    const task = (async () => {
+      const content = await this.plugin.app.vault.read(file);
+      const count = this.countMarkdownCharacters(content);
+      const latest = this.fileCharCache.get(file.path);
+      const latestVersion = latest?.version ?? 0;
+      if (latestVersion !== startVersion) {
+        return latest?.count ?? count;
+      }
+      this.updateFileCharCache(file.path, file.stat.mtime, file.stat.size, count);
+      return count;
+    })();
+    this.pendingFileCharCount.set(file.path, task);
+
+    try {
+      return await task;
+    } finally {
+      this.pendingFileCharCount.delete(file.path);
+    }
   }
 
   private countMarkdownCharacters(rawText: string): number {
