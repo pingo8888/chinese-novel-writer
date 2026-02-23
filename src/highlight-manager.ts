@@ -820,7 +820,48 @@ export class HighlightManager {
       }
     }
 
+    if (config.otherCnPairs) {
+      const pairConfigs: Array<[string, string]> = [
+        ["《", "》"],
+        ["（", "）"],
+        ["【", "】"],
+        ["〖", "〗"],
+        ["〈", "〉"],
+        ["〔", "〕"],
+        ["「", "」"],
+        ["『", "』"],
+        ["｛", "｝"],
+      ];
+      for (const [openChar, closeChar] of pairConfigs) {
+        const indexes = this.collectUnmatchedPairIndexes(text, openChar, closeChar);
+        for (const index of indexes) {
+          warningIndexes.add(index);
+        }
+      }
+    }
+
     return Array.from(warningIndexes).sort((a, b) => a - b);
+  }
+
+  private collectUnmatchedPairIndexes(text: string, openChar: string, closeChar: string): number[] {
+    const warningIndexes: number[] = [];
+    const openIndexes: number[] = [];
+
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === openChar) {
+        openIndexes.push(i);
+      } else if (ch === closeChar) {
+        if (openIndexes.length > 0) {
+          openIndexes.pop();
+        } else {
+          warningIndexes.push(i);
+        }
+      }
+    }
+
+    warningIndexes.push(...openIndexes);
+    return warningIndexes;
   }
 
   /**
@@ -940,6 +981,30 @@ export class HighlightManager {
       const result = this.normalizeQuotePairs(working, new Set(["'", "‘", "’"]), "‘", "’");
       working = result.text;
       changedCount += result.count;
+    }
+
+    if (config.otherCnPairs) {
+      const pairConfigs: Array<[string, string]> = [
+        ["《", "》"],
+        ["（", "）"],
+        ["【", "】"],
+        ["〖", "〗"],
+        ["〈", "〉"],
+        ["〔", "〕"],
+        ["「", "」"],
+        ["『", "』"],
+        ["｛", "｝"],
+      ];
+      for (const [openChar, closeChar] of pairConfigs) {
+        const result = this.normalizeQuotePairs(
+          working,
+          new Set([openChar, closeChar]),
+          openChar,
+          closeChar
+        );
+        working = result.text;
+        changedCount += result.count;
+      }
     }
 
     return { text: working, changedCount };

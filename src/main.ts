@@ -8,6 +8,7 @@ import { EditorTypographyManager } from "./editor-typography-manager";
 import { MdStatsManager } from "./md-stats-manager";
 import { ChapterManager } from "./chapter-manager";
 import { SlashH2CompleteManager } from "./slash-h2-complete-manager";
+import { CnPunctuationAutoPairManager } from "./cn-punctuation-auto-pair-manager";
 
 /**
  * 中文写作插件主类
@@ -21,6 +22,7 @@ export default class ChineseWriterPlugin extends Plugin {
   mdStatsManager: MdStatsManager;
   chapterManager: ChapterManager;
   slashH2CompleteManager: SlashH2CompleteManager;
+  cnPunctuationAutoPairManager: CnPunctuationAutoPairManager;
   private pluginDir = "";
   private settingsFilePath = "";
   private settingMenuRootEl: HTMLElement | null = null;
@@ -54,6 +56,8 @@ export default class ChineseWriterPlugin extends Plugin {
     this.chapterManager = new ChapterManager(this);
     // 初始化 //H2 候选管理器
     this.slashH2CompleteManager = new SlashH2CompleteManager(this);
+    // 初始化中文标点自动补齐管理器
+    this.cnPunctuationAutoPairManager = new CnPunctuationAutoPairManager(this);
 
     // 注册编辑器扩展（关键字高亮）
     this.registerEditorExtension(this.highlightManager.createEditorExtension());
@@ -65,6 +69,8 @@ export default class ChineseWriterPlugin extends Plugin {
     this.registerEditorExtension(this.mdStatsManager.createHeadingIconExtension());
     // 注册编辑器扩展（// H2 候选输入）
     this.registerEditorExtension(this.slashH2CompleteManager.createEditorExtension());
+    // 注册编辑器扩展（中文标点自动补齐）
+    this.registerEditorExtension(this.cnPunctuationAutoPairManager.createEditorExtension());
 
     // 初始化高亮样式
     this.highlightManager.updateStyles();

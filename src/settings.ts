@@ -74,6 +74,8 @@ export interface PunctuationCheckSettings {
   doubleQuote: boolean;
   /** 英文单引号 ' 及中文单引号配对 */
   singleQuote: boolean;
+  /** 检测其他常见成对中文标点 */
+  otherCnPairs: boolean;
 }
 
 /**
@@ -112,6 +114,8 @@ export interface ChineseWriterSettings {
   enableSlashH2CandidateBar: boolean;
   /** // 候选栏每页最大显示项 */
   slashH2CandidatePageSize: number;
+  /** 是否启用中文标点成对自动补齐 */
+  enableCnPunctuationAutoPair: boolean;
 }
 
 /**
@@ -144,6 +148,7 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
     question: true,
     doubleQuote: true,
     singleQuote: true,
+    otherCnPairs: true,
   },
   editorIndentCjkChars: 2,
   editorLineHeight: 1.6,
@@ -157,6 +162,7 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
   enableEditorHeadingIcons: false,
   enableSlashH2CandidateBar: false,
   slashH2CandidatePageSize: 8,
+  enableCnPunctuationAutoPair: false,
 };
 
 /**
@@ -574,6 +580,20 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           });
       });
 
+    new Setting(containerEl)
+      .setName("检测其他常见成对中文标点")
+      .setDesc("检测《》 （） 【】 〖〗 〈〉 〔〕 「」 『』 ｛｝ 的配对错误")
+      .addToggle((toggle) => {
+        punctuationOptionToggles.push(toggle);
+        toggle
+          .setValue(this.plugin.settings.punctuationCheck.otherCnPairs)
+          .setDisabled(!this.plugin.settings.punctuationCheck.enabled)
+          .onChange(async (value) => {
+            this.plugin.settings.punctuationCheck.otherCnPairs = value;
+            await saveAndRefreshPunctuation();
+          });
+      });
+
     // 编辑区排版设置
     containerEl.createEl("h3", { text: "编辑区排版" });
 
@@ -693,6 +713,18 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
             this.plugin.settings.enableEditorJustify = value;
             await this.plugin.saveSettings();
             this.updateEditorTypographyStyles();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("中文标点成对补齐")
+      .setDesc("输入前半中文标点时自动补齐后半标点，光标保持在中间")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.enableCnPunctuationAutoPair)
+          .onChange(async (value) => {
+            this.plugin.settings.enableCnPunctuationAutoPair = value;
+            await this.plugin.saveSettings();
           })
       );
 
