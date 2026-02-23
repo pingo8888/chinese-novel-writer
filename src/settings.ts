@@ -165,6 +165,7 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
 export class ChineseWriterSettingTab extends PluginSettingTab {
   plugin: ChineseWriterPlugin;
   private isAddingMapping = false;
+  private delayedSaveTimer: number | null = null;
 
   constructor(app: App, plugin: ChineseWriterPlugin) {
     super(app, plugin);
@@ -372,9 +373,9 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           .setLimits(240, 720, 20)
           .setValue(this.plugin.settings.highlightPreviewStyle.width)
           .setDynamicTooltip()
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.highlightPreviewStyle.width = value;
-            await this.plugin.saveSettings();
+            this.scheduleDelayedSave();
           })
       );
 
@@ -386,9 +387,9 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           .setLimits(160, 800, 20)
           .setValue(this.plugin.settings.highlightPreviewStyle.height)
           .setDynamicTooltip()
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.highlightPreviewStyle.height = value;
-            await this.plugin.saveSettings();
+            this.scheduleDelayedSave();
           })
       );
 
@@ -400,9 +401,9 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           .setLimits(3, 50, 1)
           .setValue(this.plugin.settings.highlightPreviewStyle.maxBodyLines)
           .setDynamicTooltip()
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.highlightPreviewStyle.maxBodyLines = value;
-            await this.plugin.saveSettings();
+            this.scheduleDelayedSave();
           })
       );
 
@@ -439,10 +440,10 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.slashH2CandidatePageSize)
         .setDynamicTooltip()
         .setDisabled(!this.plugin.settings.enableSlashH2CandidateBar)
-        .onChange(async (value) => {
+        .onChange((value) => {
           this.plugin.settings.slashH2CandidatePageSize = value;
           updateCandidatePageSizeDesc(value);
-          await this.plugin.saveSettings();
+          this.scheduleDelayedSave();
         }))
       );
     candidatePageSizeText = pageSizeSetting.descEl.createDiv({
@@ -599,10 +600,10 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           .setLimits(0, 6, 0.5)
           .setValue(this.plugin.settings.editorIndentCjkChars)
           .setDynamicTooltip()
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.editorIndentCjkChars = value;
-            await this.plugin.saveSettings();
             this.updateEditorTypographyStyles();
+            this.scheduleDelayedSave();
           })
       );
 
@@ -614,10 +615,10 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           .setLimits(1.2, 2.6, 0.1)
           .setValue(this.plugin.settings.editorLineHeight)
           .setDynamicTooltip()
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.editorLineHeight = value;
-            await this.plugin.saveSettings();
             this.updateEditorTypographyStyles();
+            this.scheduleDelayedSave();
           })
       );
 
@@ -629,10 +630,10 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           .setLimits(0, 32, 1)
           .setValue(this.plugin.settings.editorParagraphSpacing)
           .setDynamicTooltip()
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.editorParagraphSpacing = value;
-            await this.plugin.saveSettings();
             this.updateEditorTypographyStyles();
+            this.scheduleDelayedSave();
           })
       );
 
@@ -916,5 +917,15 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
     if (this.plugin.editorTypographyManager) {
       this.plugin.editorTypographyManager.updateStyles();
     }
+  }
+
+  private scheduleDelayedSave(delayMs = 350): void {
+    if (this.delayedSaveTimer !== null) {
+      window.clearTimeout(this.delayedSaveTimer);
+    }
+    this.delayedSaveTimer = window.setTimeout(() => {
+      this.delayedSaveTimer = null;
+      void this.plugin.saveSettings();
+    }, delayMs);
   }
 }

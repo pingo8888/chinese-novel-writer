@@ -74,6 +74,7 @@ export class MdStatsManager {
   private folderStatsCache: Map<string, FolderStats> = new Map();
   private refreshTimer: number | null = null;
   private mutationObserver: MutationObserver | null = null;
+  private observedExplorerRoot: HTMLElement | null = null;
   private statusBarEl: HTMLElement | null = null;
   private statusUpdateRunId = 0;
   private headingIconRenderVersion = 0;
@@ -205,6 +206,7 @@ export class MdStatsManager {
       this.mutationObserver.disconnect();
       this.mutationObserver = null;
     }
+    this.observedExplorerRoot = null;
     this.statusBarEl?.remove();
     this.statusBarEl = null;
   }
@@ -229,19 +231,35 @@ export class MdStatsManager {
   }
 
   private startFileExplorerObserver(): void {
+    this.bindFileExplorerObserver();
+  }
+
+  private bindFileExplorerObserver(): void {
+    const rootEl = this.getFileExplorerRootElement();
+    if (!rootEl) {
+      this.mutationObserver?.disconnect();
+      this.observedExplorerRoot = null;
+      return;
+    }
+    if (rootEl === this.observedExplorerRoot && this.mutationObserver) {
+      return;
+    }
+
     this.mutationObserver?.disconnect();
     this.mutationObserver = new MutationObserver(() => {
       this.scheduleFileExplorerRefresh();
     });
-    this.mutationObserver.observe(document.body, {
+    this.mutationObserver.observe(rootEl, {
       childList: true,
       subtree: true,
       attributes: true,
       attributeFilter: ["class", "data-path"],
     });
+    this.observedExplorerRoot = rootEl;
   }
 
   private async renderFileExplorerStats(): Promise<void> {
+    this.bindFileExplorerObserver();
     const folderTitleEls = this.getFileExplorerFolderTitleElements();
     const fileTitleEls = this.getFileExplorerFileTitleElements();
     if (folderTitleEls.length === 0 && fileTitleEls.length === 0) {
@@ -496,6 +514,12 @@ export class MdStatsManager {
       '.workspace-leaf-content[data-type="file-explorer"] .nav-folder-title[data-path]';
     return Array.from(document.querySelectorAll(selector))
       .filter((el): el is HTMLElement => el instanceof HTMLElement);
+  }
+
+  private getFileExplorerRootElement(): HTMLElement | null {
+    const selector = '.workspace-leaf-content[data-type="file-explorer"]';
+    const rootEl = document.querySelector(selector);
+    return rootEl instanceof HTMLElement ? rootEl : null;
   }
 
   private getFileExplorerFileTitleElements(): HTMLElement[] {

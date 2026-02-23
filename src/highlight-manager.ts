@@ -31,6 +31,7 @@ export class HighlightManager {
   private keywordsCache: Map<string, Set<string>> = new Map();
   private keywordPreviewCache: Map<string, Map<string, KeywordPreviewData>> = new Map();
   private keywordGroupCache: Map<string, Map<string, string>> = new Map();
+  private keywordRegexCache: Map<string, { version: number; regex: RegExp | null }> = new Map();
   private keywordsVersion = 0;
   private previewEl: HTMLElement | null = null;
   private previewHoverKey = "";
@@ -158,6 +159,7 @@ export class HighlightManager {
     this.keywordsCache.clear();
     this.keywordPreviewCache.clear();
     this.keywordGroupCache.clear();
+    this.keywordRegexCache.clear();
     this.keywordsVersion++;
   }
 
@@ -284,6 +286,32 @@ export class HighlightManager {
 
   private getKeywordGroupMap(settingFolder: string): Map<string, string> {
     return this.keywordGroupCache.get(settingFolder) ?? new Map();
+  }
+
+  private getKeywordRegex(settingFolder: string, keywords: Set<string>): RegExp | null {
+    const cached = this.keywordRegexCache.get(settingFolder);
+    if (cached && cached.version === this.keywordsVersion) {
+      return cached.regex;
+    }
+
+    const sortedKeywords = Array.from(keywords)
+      .filter((keyword) => keyword.length > 0)
+      .sort((a, b) => {
+        if (a.length !== b.length) return b.length - a.length;
+        return a.localeCompare(b, "zh-Hans-CN");
+      });
+
+    if (sortedKeywords.length === 0) {
+      this.keywordRegexCache.set(settingFolder, { version: this.keywordsVersion, regex: null });
+      return null;
+    }
+
+    const pattern = sortedKeywords
+      .map((keyword) => keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("|");
+    const regex = new RegExp(pattern, "g");
+    this.keywordRegexCache.set(settingFolder, { version: this.keywordsVersion, regex });
+    return regex;
   }
 
   private addKeywordVariant(
@@ -1011,18 +1039,21 @@ export class HighlightManager {
           // 获取高亮模式
           const highlightMode = manager.plugin.settings.highlightStyle.mode;
 
-          // 为每个关键字查找匹配
-          for (const keyword of keywords) {
-            // 转义特殊字符
-            const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const regex = new RegExp(escapedKeyword, 'g');
-
-            let match;
-            while ((match = regex.exec(text)) !== null) {
+          const keywordRegex = manager.getKeywordRegex(settingFolder, keywords);
+          if (keywordRegex) {
+            keywordRegex.lastIndex = 0;
+            let match: RegExpExecArray | null = null;
+            while ((match = keywordRegex.exec(text)) !== null) {
+              const matchedKeyword = match[0] ?? "";
+              if (!matchedKeyword) {
+                // 防御性处理：避免零宽匹配导致死循环
+                keywordRegex.lastIndex++;
+                continue;
+              }
               matches.push({
                 from: match.index,
-                to: match.index + keyword.length,
-                keyword,
+                to: match.index + matchedKeyword.length,
+                keyword: matchedKeyword,
               });
             }
           }
