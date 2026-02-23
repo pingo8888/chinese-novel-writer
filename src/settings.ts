@@ -337,6 +337,120 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
+    // 高亮预览栏设置
+    containerEl.createEl("h3", { text: "预览栏设置" });
+
+    new Setting(containerEl)
+      .setName("正文悬停预览")
+      .setDesc("开启后，鼠标悬停正文高亮关键词时显示预览栏")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.enableEditorHoverPreview)
+          .onChange(async (value) => {
+            this.plugin.settings.enableEditorHoverPreview = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("右边栏悬停预览")
+      .setDesc("开启后，鼠标悬停右边栏时显示预览栏")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.enableTreeH2HoverPreview)
+          .onChange(async (value) => {
+            this.plugin.settings.enableTreeH2HoverPreview = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("预览栏宽度")
+      .setDesc("悬停预览栏宽度（像素）")
+      .addSlider((slider) =>
+        slider
+          .setLimits(240, 720, 20)
+          .setValue(this.plugin.settings.highlightPreviewStyle.width)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            this.plugin.settings.highlightPreviewStyle.width = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("预览栏高度")
+      .setDesc("悬停预览栏最大高度（像素）")
+      .addSlider((slider) =>
+        slider
+          .setLimits(160, 800, 20)
+          .setValue(this.plugin.settings.highlightPreviewStyle.height)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            this.plugin.settings.highlightPreviewStyle.height = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("下方内容最多显示行数")
+      .setDesc("超过该行数时显示滚动条")
+      .addSlider((slider) =>
+        slider
+          .setLimits(3, 50, 1)
+          .setValue(this.plugin.settings.highlightPreviewStyle.maxBodyLines)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            this.plugin.settings.highlightPreviewStyle.maxBodyLines = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // 候选栏设置
+    containerEl.createEl("h3", { text: "候选栏设置" });
+
+    let candidatePageSizeText: HTMLDivElement | null = null;
+    let candidatePageSizeSlider: { setDisabled: (disabled: boolean) => unknown } | null = null;
+    const updateCandidatePageSizeDesc = (value: number) => {
+      if (candidatePageSizeText) {
+        candidatePageSizeText.setText(`当前每页最多显示 ${value} 项`);
+      }
+    };
+
+    new Setting(containerEl)
+      .setName("启用 // 候选栏")
+      .setDesc("关闭时不响应 // 触发词汇候选")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.enableSlashH2CandidateBar)
+          .onChange(async (value) => {
+            this.plugin.settings.enableSlashH2CandidateBar = value;
+            candidatePageSizeSlider?.setDisabled(!value);
+            await this.plugin.saveSettings();
+          })
+      );
+
+    const pageSizeSetting = new Setting(containerEl)
+      .setName("每页最多显示项数")
+      .setDesc("候选栏分页显示，每页最多展示的候选词数量")
+      .addSlider((slider) =>
+      (candidatePageSizeSlider = slider, slider
+        .setLimits(1, 20, 1)
+        .setValue(this.plugin.settings.slashH2CandidatePageSize)
+        .setDynamicTooltip()
+        .setDisabled(!this.plugin.settings.enableSlashH2CandidateBar)
+        .onChange(async (value) => {
+          this.plugin.settings.slashH2CandidatePageSize = value;
+          updateCandidatePageSizeDesc(value);
+          await this.plugin.saveSettings();
+        }))
+      );
+    candidatePageSizeText = pageSizeSetting.descEl.createDiv({
+      cls: "setting-item-description",
+      text: "",
+    });
+    updateCandidatePageSizeDesc(this.plugin.settings.slashH2CandidatePageSize);
+
     // 常见标点检测设置
     containerEl.createEl("h3", { text: "常见标点检测" });
 
@@ -459,120 +573,6 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           });
       });
 
-    // 高亮预览栏设置
-    containerEl.createEl("h3", { text: "预览栏设置" });
-
-    new Setting(containerEl)
-      .setName("正文悬停预览")
-      .setDesc("开启后，鼠标悬停正文高亮关键词时显示预览栏")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.enableEditorHoverPreview)
-          .onChange(async (value) => {
-            this.plugin.settings.enableEditorHoverPreview = value;
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("右边栏悬停预览")
-      .setDesc("开启后，鼠标悬停右边栏时显示预览栏")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.enableTreeH2HoverPreview)
-          .onChange(async (value) => {
-            this.plugin.settings.enableTreeH2HoverPreview = value;
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("预览栏宽度")
-      .setDesc("悬停预览栏宽度（像素）")
-      .addSlider((slider) =>
-        slider
-          .setLimits(240, 720, 20)
-          .setValue(this.plugin.settings.highlightPreviewStyle.width)
-          .setDynamicTooltip()
-          .onChange(async (value) => {
-            this.plugin.settings.highlightPreviewStyle.width = value;
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("预览栏高度")
-      .setDesc("悬停预览栏最大高度（像素）")
-      .addSlider((slider) =>
-        slider
-          .setLimits(160, 800, 20)
-          .setValue(this.plugin.settings.highlightPreviewStyle.height)
-          .setDynamicTooltip()
-          .onChange(async (value) => {
-            this.plugin.settings.highlightPreviewStyle.height = value;
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("下方内容最多显示行数")
-      .setDesc("超过该行数时显示滚动条")
-      .addSlider((slider) =>
-        slider
-          .setLimits(3, 50, 1)
-          .setValue(this.plugin.settings.highlightPreviewStyle.maxBodyLines)
-          .setDynamicTooltip()
-          .onChange(async (value) => {
-            this.plugin.settings.highlightPreviewStyle.maxBodyLines = value;
-            await this.plugin.saveSettings();
-          })
-      );
-
-    // 候选栏设置
-    containerEl.createEl("h3", { text: "候选栏设置" });
-
-    let candidatePageSizeText: HTMLDivElement | null = null;
-    let candidatePageSizeSlider: { setDisabled: (disabled: boolean) => unknown } | null = null;
-    const updateCandidatePageSizeDesc = (value: number) => {
-      if (candidatePageSizeText) {
-        candidatePageSizeText.setText(`当前每页最多显示 ${value} 项`);
-      }
-    };
-
-    new Setting(containerEl)
-      .setName("启用 // 候选栏")
-      .setDesc("关闭时不响应 // 触发词汇候选")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.enableSlashH2CandidateBar)
-          .onChange(async (value) => {
-            this.plugin.settings.enableSlashH2CandidateBar = value;
-            candidatePageSizeSlider?.setDisabled(!value);
-            await this.plugin.saveSettings();
-          })
-      );
-
-    const pageSizeSetting = new Setting(containerEl)
-      .setName("每页最多显示项数")
-      .setDesc("候选栏分页显示，每页最多展示的候选词数量")
-      .addSlider((slider) =>
-        (candidatePageSizeSlider = slider, slider
-          .setLimits(1, 20, 1)
-          .setValue(this.plugin.settings.slashH2CandidatePageSize)
-          .setDynamicTooltip()
-          .setDisabled(!this.plugin.settings.enableSlashH2CandidateBar)
-          .onChange(async (value) => {
-            this.plugin.settings.slashH2CandidatePageSize = value;
-            updateCandidatePageSizeDesc(value);
-            await this.plugin.saveSettings();
-          }))
-      );
-    candidatePageSizeText = pageSizeSetting.descEl.createDiv({
-      cls: "setting-item-description",
-      text: "",
-    });
-    updateCandidatePageSizeDesc(this.plugin.settings.slashH2CandidatePageSize);
-
     // 编辑区排版设置
     containerEl.createEl("h3", { text: "编辑区排版" });
 
@@ -636,6 +636,31 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
+    new Setting(containerEl)
+      .setName("编辑区标题图标")
+      .setDesc("在编辑视图各级标题前显示对应等级图标")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.enableEditorHeadingIcons)
+          .onChange(async (value) => {
+            this.plugin.settings.enableEditorHeadingIcons = value;
+            await this.plugin.saveSettings();
+            this.plugin.mdStatsManager.refreshEditorDecorations();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("两端对齐")
+      .setDesc("开启后编辑区正文使用两端对齐，并启用自动断词")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.enableEditorJustify)
+          .onChange(async (value) => {
+            this.plugin.settings.enableEditorJustify = value;
+            await this.plugin.saveSettings();
+            this.updateEditorTypographyStyles();
+          })
+      );
 
     // 文件打开行为设置
     containerEl.createEl("h3", { text: "文件打开行为" });
@@ -666,32 +691,6 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
             this.plugin.settings.enableMdStats = value;
             await this.plugin.saveSettings();
             this.plugin.mdStatsManager.setEnabled(value);
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("编辑区标题图标")
-      .setDesc("在编辑视图各级标题前显示对应等级图标")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.enableEditorHeadingIcons)
-          .onChange(async (value) => {
-            this.plugin.settings.enableEditorHeadingIcons = value;
-            await this.plugin.saveSettings();
-            this.plugin.mdStatsManager.refreshEditorDecorations();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("两端对齐")
-      .setDesc("开启后编辑区正文使用两端对齐，并启用自动断词")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.enableEditorJustify)
-          .onChange(async (value) => {
-            this.plugin.settings.enableEditorJustify = value;
-            await this.plugin.saveSettings();
-            this.updateEditorTypographyStyles();
           })
       );
 
