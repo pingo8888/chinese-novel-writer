@@ -894,7 +894,9 @@ export class HighlightManager {
       return;
     }
 
+    const cursor = activeView.editor.getCursor();
     activeView.editor.setValue(fixedText);
+    activeView.editor.setCursor(cursor);
     this.refreshCurrentEditor();
   }
 
