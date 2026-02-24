@@ -81,6 +81,7 @@ export default class ChineseWriterPlugin extends Plugin {
 
     // 初始化高亮样式
     this.highlightManager.updateStyles();
+    await this.highlightManager.reloadTypoDictionary();
     // 初始化编辑区排版样式
     this.editorTypographyManager.updateStyles();
     // 初始化统计显示
@@ -107,6 +108,15 @@ export default class ChineseWriterPlugin extends Plugin {
       name: "自动修正当前文档标点问题",
       callback: async () => {
         await this.highlightManager.fixPunctuationForActiveEditor();
+      },
+    });
+
+    // 批量修正当前文档中的错别字与敏感词（依据错别字与敏感词词典）
+    this.addCommand({
+      id: "auto-fix-typo-dictionary-in-current-file",
+      name: "批量修正当前文档错别字与敏感词",
+      callback: async () => {
+        await this.highlightManager.fixTyposForActiveEditor();
       },
     });
 
@@ -154,6 +164,7 @@ export default class ChineseWriterPlugin extends Plugin {
         if (file instanceof TFile && file.extension === "md") {
           this.mdStatsManager.onVaultFileChanged(file.path);
           this.slashSnippetCompleteManager.onVaultPathChanged(file.path);
+          this.highlightManager.onVaultPathChanged(file.path);
           this.smartUpdateView();
           this.updateH3CacheForSettingFile(file.path);
 
@@ -179,6 +190,7 @@ export default class ChineseWriterPlugin extends Plugin {
         if (file instanceof TFile && file.extension === "md") {
           this.mdStatsManager.onVaultFileChanged(file.path);
           this.slashSnippetCompleteManager.onVaultPathChanged(file.path);
+          this.highlightManager.onVaultPathChanged(file.path);
           this.syncOrderOnFileCreate(file);
           this.updateH3CacheForSettingFile(file.path);
         }
@@ -191,12 +203,14 @@ export default class ChineseWriterPlugin extends Plugin {
         if (file instanceof TFile && file.extension === "md") {
           this.mdStatsManager.onVaultFileChanged(file.path);
           this.slashSnippetCompleteManager.onVaultPathChanged(file.path);
+          this.highlightManager.onVaultPathChanged(file.path);
           this.syncOrderOnFileDelete(file);
           this.updateH3CacheForSettingFile(file.path);
           return;
         }
 
         if (file instanceof TFolder) {
+          this.highlightManager.onVaultPathChanged(file.path);
           void this.handleMappedFolderDeleted(file.path);
         }
       })
@@ -209,6 +223,7 @@ export default class ChineseWriterPlugin extends Plugin {
           this.mdStatsManager.onVaultFileChanged(oldPath);
           this.mdStatsManager.onVaultFileChanged(file.path);
           this.slashSnippetCompleteManager.onVaultPathChanged(file.path, oldPath);
+          this.highlightManager.onVaultPathChanged(file.path, oldPath);
           this.syncOrderOnFileRename(file, oldPath);
           this.updateH3CacheForSettingFile(oldPath);
           this.updateH3CacheForSettingFile(file.path);
@@ -216,6 +231,7 @@ export default class ChineseWriterPlugin extends Plugin {
         }
 
         if (file instanceof TFolder) {
+          this.highlightManager.onVaultPathChanged(file.path, oldPath);
           void this.handleMappedFolderRenamed(oldPath, file.path);
         }
       })

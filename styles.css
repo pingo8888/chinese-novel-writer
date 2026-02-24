@@ -126,6 +126,15 @@
   text-decoration-skip-ink: none !important;
 }
 
+.chinese-writer-typo-warning {
+  text-decoration-line: underline !important;
+  text-decoration-style: wavy !important;
+  text-decoration-color: #e53935 !important;
+  text-decoration-thickness: 1.5px !important;
+  text-underline-offset: 4px !important;
+  text-decoration-skip-ink: none !important;
+}
+
 /* 高亮悬停预览 */
 .chinese-writer-highlight-preview {
   position: fixed;

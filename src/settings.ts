@@ -118,6 +118,10 @@ export interface ChineseWriterSettings {
   slashH2CandidatePageSize: number;
   /** // 文本片段来源目录路径（递归读取目录下所有 md） */
   slashSnippetFolderPath: string;
+  /** 是否启用错别字与敏感词词典检测/修正 */
+  enableTypoDictionary: boolean;
+  /** 错别字与敏感词词典目录路径（递归读取目录下所有 md） */
+  typoDictionaryFolderPath: string;
   /** 是否启用中文标点成对自动补齐 */
   enableCnPunctuationAutoPair: boolean;
 }
@@ -168,6 +172,8 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
   enableSlashSnippetCandidateBar: false,
   slashH2CandidatePageSize: 8,
   slashSnippetFolderPath: "",
+  enableTypoDictionary: false,
+  typoDictionaryFolderPath: "",
   enableCnPunctuationAutoPair: false,
 };
 
@@ -187,9 +193,23 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
 
   display(): void {
     const { containerEl } = this;
+    const folderPathSuggestions = this.getAllFolderPaths();
     const saveAndRefreshPunctuation = async () => {
       await this.plugin.saveSettings();
       this.refreshEditorHighlight();
+    };
+    const showTypoDictionaryReloadNotice = (
+      status: "missing-path" | "invalid-folder" | "ok" | "error",
+      trimmedPath: string,
+      count: number
+    ) => {
+      if (trimmedPath.length > 0 && status === "invalid-folder") {
+        new Notice("错别字与敏感词词典目录路径无效：请填写 Vault 内目录路径");
+      } else if (status === "error") {
+        new Notice("错别字与敏感词词典加载失败，请检查目录和文件内容");
+      } else if (status === "ok" && count === 0 && trimmedPath.length > 0) {
+        new Notice("错别字与敏感词词典目录已加载，但未解析到可用条目（每行格式：A@B 或 A）");
+      }
     };
     const punctuationOptionToggles: Array<{ setDisabled: (disabled: boolean) => unknown }> = [];
     const setPunctuationOptionDisabled = (disabled: boolean) => {
@@ -527,8 +547,6 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
     quickTabEl.createEl("h3", { text: "文本片段设置" });
 
     let snippetPathInput: { setDisabled: (disabled: boolean) => unknown } | null = null;
-    const folderPathSuggestions = this.getAllFolderPaths();
-
     new Setting(quickTabEl)
       .setName("启用 // 文本片段")
       .setDesc("输入 // + 英文关键字时，从指定目录的 Markdown 文本片段中匹配")
@@ -709,6 +727,55 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
             await saveAndRefreshPunctuation();
           });
       });
+
+    // 自定义错别字词典设置
+    checkTabEl.createEl("h3", { text: "自定义错别字与敏感词检测" });
+
+    let typoDictionaryPathInput: { setDisabled: (disabled: boolean) => unknown } | null = null;
+
+    new Setting(checkTabEl)
+      .setName("启用自定义错别字与敏感词词典")
+      .setDesc("开启后，在正文中标记错别字与敏感词并支持批量修正")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.enableTypoDictionary)
+          .onChange(async (value) => {
+            this.plugin.settings.enableTypoDictionary = value;
+            typoDictionaryPathInput?.setDisabled(!value);
+            await this.plugin.saveSettings();
+            const result = await this.plugin.highlightManager.reloadTypoDictionary();
+            showTypoDictionaryReloadNotice(
+              result.status,
+              this.plugin.settings.typoDictionaryFolderPath.trim(),
+              result.count
+            );
+            this.refreshEditorHighlight();
+          })
+      );
+
+    new Setting(checkTabEl)
+      .setName("错别字与敏感词词典目录路径")
+      .setDesc("填写 Vault 内目录路径，递归读取该目录及子目录下所有 .md 文件")
+      .addText((text) =>
+      (typoDictionaryPathInput = text,
+        text.inputEl.addEventListener("blur", async () => {
+          const trimmed = this.plugin.settings.typoDictionaryFolderPath.trim();
+          this.plugin.settings.typoDictionaryFolderPath = trimmed;
+          await this.plugin.saveSettings();
+          const result = await this.plugin.highlightManager.reloadTypoDictionary();
+          showTypoDictionaryReloadNotice(result.status, trimmed, result.count);
+          this.refreshEditorHighlight();
+        }),
+        text
+          .setPlaceholder("错别字与敏感词词典")
+          .setValue(this.plugin.settings.typoDictionaryFolderPath)
+          .setDisabled(!this.plugin.settings.enableTypoDictionary)
+          .onChange((value) => {
+            this.plugin.settings.typoDictionaryFolderPath = value;
+            this.scheduleDelayedSave();
+          }),
+        this.bindFolderPathSuggestionPanel(text.inputEl, folderPathSuggestions))
+      );
 
     // 编辑区排版设置
     typographyTabEl.createEl("h3", { text: "编辑区排版" });

@@ -1,4 +1,4 @@
-import { App, TFile, MarkdownView, setIcon } from "obsidian";
+import { App, TFile, TFolder, MarkdownView, setIcon } from "obsidian";
 import type ChineseWriterPlugin from "./main";
 import { EditorView, Decoration, DecorationSet, ViewPlugin, ViewUpdate, PluginValue } from "@codemirror/view";
 import { RangeSetBuilder, Transaction } from "@codemirror/state";
@@ -19,6 +19,17 @@ interface H3SectionData {
   status?: string;
   aliases: string[];
   bodyLines: string[];
+}
+
+interface TypoDictionaryEntry {
+  typo: string;
+  correction?: string;
+}
+
+export interface TypoDictionaryReloadResult {
+  status: "missing-path" | "invalid-folder" | "ok" | "error";
+  count: number;
+  path: string;
 }
 
 const CN_BRACKET_PAIRS: ReadonlyArray<readonly [string, string]> = [
@@ -57,6 +68,17 @@ export class HighlightManager {
   private treePreviewInFlightPromise: Promise<void> | null = null;
   private treePreviewRunId = 0;
   private markdownViewCache: WeakMap<EditorView, MarkdownView> = new WeakMap();
+  private typoDictionaryEntries: TypoDictionaryEntry[] = [];
+  private typoWarningWords: string[] = [];
+  private typoCorrectionMap: Map<string, string> = new Map();
+  private typoWarningRegexCache: { signature: string; regex: RegExp | null } = {
+    signature: "",
+    regex: null,
+  };
+  private typoReplacementRegexCache: { signature: string; regex: RegExp | null } = {
+    signature: "",
+    regex: null,
+  };
 
   constructor(plugin: ChineseWriterPlugin) {
     this.plugin = plugin;
@@ -179,6 +201,71 @@ export class HighlightManager {
     this.keywordGroupCache.clear();
     this.keywordRegexCache.clear();
     this.keywordsVersion++;
+  }
+
+  async reloadTypoDictionary(): Promise<TypoDictionaryReloadResult> {
+    const path = this.plugin.settings.typoDictionaryFolderPath.trim();
+    if (!this.plugin.settings.enableTypoDictionary || !path) {
+      this.resetTypoDictionaryCache();
+      return { status: "missing-path", count: 0, path };
+    }
+
+    const folder = this.plugin.app.vault.getAbstractFileByPath(path);
+    if (!(folder instanceof TFolder)) {
+      this.resetTypoDictionaryCache();
+      return { status: "invalid-folder", count: 0, path };
+    }
+
+    try {
+      const prefix = folder.path ? `${folder.path}/` : "";
+      const files = this.plugin.app.vault
+        .getMarkdownFiles()
+        .filter((file) => file.path.startsWith(prefix))
+        .sort((a, b) => a.path.localeCompare(b.path, "zh-Hans-CN"));
+
+      const firstSeenEntryByTypo = new Map<string, TypoDictionaryEntry>();
+      for (const file of files) {
+        const content = await this.plugin.app.vault.cachedRead(file);
+        const parsed = this.parseTypoDictionary(content);
+        for (const entry of parsed) {
+          if (!firstSeenEntryByTypo.has(entry.typo)) {
+            firstSeenEntryByTypo.set(entry.typo, entry);
+          }
+        }
+      }
+
+      this.typoDictionaryEntries = Array.from(firstSeenEntryByTypo.values());
+      this.typoWarningWords = this.typoDictionaryEntries
+        .map((entry) => entry.typo)
+        .sort((a, b) => {
+          if (a.length !== b.length) return b.length - a.length;
+          return a.localeCompare(b, "zh-Hans-CN");
+        });
+      this.typoCorrectionMap = new Map(
+        this.typoDictionaryEntries
+          .filter((entry) => !!entry.correction && entry.correction.length > 0)
+          .map((entry) => [entry.typo, entry.correction as string])
+      );
+      this.typoWarningRegexCache = { signature: "", regex: null };
+      this.typoReplacementRegexCache = { signature: "", regex: null };
+      return { status: "ok", count: this.typoDictionaryEntries.length, path };
+    } catch (error) {
+      console.error("Failed to load typo dictionary:", error);
+      this.resetTypoDictionaryCache();
+      return { status: "error", count: 0, path };
+    }
+  }
+
+  onVaultPathChanged(path: string, oldPath?: string): void {
+    const configured = this.plugin.settings.typoDictionaryFolderPath.trim();
+    if (!configured) return;
+    const inConfigured = path === configured || path.startsWith(`${configured}/`);
+    const oldInConfigured = oldPath === configured || (!!oldPath && oldPath.startsWith(`${configured}/`));
+    if (inConfigured || oldInConfigured) {
+      void this.reloadTypoDictionary().then(() => {
+        this.refreshCurrentEditor();
+      });
+    }
   }
 
   /**
@@ -824,6 +911,97 @@ export class HighlightManager {
     return normalizedFilePath.startsWith(normalizedFolder + "/");
   }
 
+  private resetTypoDictionaryCache(): void {
+    this.typoDictionaryEntries = [];
+    this.typoWarningWords = [];
+    this.typoCorrectionMap.clear();
+    this.typoWarningRegexCache = { signature: "", regex: null };
+    this.typoReplacementRegexCache = { signature: "", regex: null };
+  }
+
+  private parseTypoDictionary(content: string): TypoDictionaryEntry[] {
+    const lines = content.split(/\r?\n/);
+    const entries: TypoDictionaryEntry[] = [];
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+
+      const atIndex = line.indexOf("@");
+      if (atIndex === -1) {
+        entries.push({ typo: line });
+        continue;
+      }
+
+      const typo = line.slice(0, atIndex).trim();
+      const correctionRaw = line.slice(atIndex + 1).trim();
+      if (!typo) continue;
+      entries.push({
+        typo,
+        correction: correctionRaw.length > 0 ? correctionRaw : undefined,
+      });
+    }
+    return entries;
+  }
+
+  private escapeRegex(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  private getTypoWarningRegex(): RegExp | null {
+    if (this.typoWarningWords.length === 0) return null;
+    const signature = this.typoWarningWords.join("\u0001");
+    if (this.typoWarningRegexCache.signature === signature) {
+      return this.typoWarningRegexCache.regex;
+    }
+
+    const pattern = this.typoWarningWords.map((word) => this.escapeRegex(word)).join("|");
+    const regex = pattern.length > 0 ? new RegExp(pattern, "g") : null;
+    this.typoWarningRegexCache = { signature, regex };
+    return regex;
+  }
+
+  private getTypoReplacementRegex(): RegExp | null {
+    const typos = Array.from(this.typoCorrectionMap.keys()).sort((a, b) => {
+      if (a.length !== b.length) return b.length - a.length;
+      return a.localeCompare(b, "zh-Hans-CN");
+    });
+    if (typos.length === 0) return null;
+
+    const signature = typos.join("\u0001");
+    if (this.typoReplacementRegexCache.signature === signature) {
+      return this.typoReplacementRegexCache.regex;
+    }
+
+    const pattern = typos.map((typo) => this.escapeRegex(typo)).join("|");
+    const regex = pattern.length > 0 ? new RegExp(pattern, "g") : null;
+    this.typoReplacementRegexCache = { signature, regex };
+    return regex;
+  }
+
+  private collectTypoWarnings(text: string): Array<{ from: number; to: number }> {
+    if (!this.plugin.settings.enableTypoDictionary || this.typoWarningWords.length === 0) {
+      return [];
+    }
+    const regex = this.getTypoWarningRegex();
+    if (!regex) return [];
+
+    const warnings: Array<{ from: number; to: number }> = [];
+    regex.lastIndex = 0;
+    let match: RegExpExecArray | null = null;
+    while ((match = regex.exec(text)) !== null) {
+      const matched = match[0] ?? "";
+      if (!matched) {
+        regex.lastIndex++;
+        continue;
+      }
+      warnings.push({
+        from: match.index,
+        to: match.index + matched.length,
+      });
+    }
+    return warnings;
+  }
+
   /**
    * 收集需要标记的常见标点位置
    */
@@ -948,6 +1126,39 @@ export class HighlightManager {
     this.refreshCurrentEditor();
   }
 
+  async fixTyposForActiveEditor(): Promise<{ replacementCount: number }> {
+    const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!activeView?.file || !activeView.editor) {
+      return { replacementCount: 0 };
+    }
+
+    if (!this.plugin.settings.enableTypoDictionary) {
+      return { replacementCount: 0 };
+    }
+
+    const settingFolder = this.getSettingFolderForFile(activeView.file.path);
+    if (!settingFolder) {
+      return { replacementCount: 0 };
+    }
+
+    // 仅在已配置小说库中的文件执行（与检测行为一致）
+    if (this.isFileInFolder(activeView.file.path, settingFolder)) {
+      return { replacementCount: 0 };
+    }
+
+    const originalText = activeView.editor.getValue();
+    const { text: fixedText, replacementCount } = this.applyTypoFixes(originalText);
+    if (replacementCount <= 0 || fixedText === originalText) {
+      return { replacementCount: 0 };
+    }
+
+    const cursor = activeView.editor.getCursor();
+    activeView.editor.setValue(fixedText);
+    activeView.editor.setCursor(cursor);
+    this.refreshCurrentEditor();
+    return { replacementCount };
+  }
+
   private applyPunctuationFixes(text: string): { text: string; changedCount: number } {
     const config = this.plugin.settings.punctuationCheck;
     if (!config?.enabled) {
@@ -1036,6 +1247,29 @@ export class HighlightManager {
     }
 
     return { text: chars.join(""), changedCount };
+  }
+
+  private applyTypoFixes(text: string): { text: string; replacementCount: number } {
+    if (!this.plugin.settings.enableTypoDictionary || this.typoCorrectionMap.size === 0) {
+      return { text, replacementCount: 0 };
+    }
+
+    const regex = this.getTypoReplacementRegex();
+    if (!regex) {
+      return { text, replacementCount: 0 };
+    }
+
+    let replacementCount = 0;
+    const replaced = text.replace(regex, (matched) => {
+      const correction = this.typoCorrectionMap.get(matched);
+      if (!correction || correction === matched) {
+        return matched;
+      }
+      replacementCount++;
+      return correction;
+    });
+
+    return { text: replaced, replacementCount };
   }
 
   /**
@@ -1167,6 +1401,18 @@ export class HighlightManager {
               to: index + 1,
               decoration: Decoration.mark({
                 class: "chinese-writer-punctuation-warning",
+              }),
+            });
+          }
+
+          // 错别字字典检测装饰器
+          const typoWarnings = manager.collectTypoWarnings(text);
+          for (const warning of typoWarnings) {
+            decorationRanges.push({
+              from: warning.from,
+              to: warning.to,
+              decoration: Decoration.mark({
+                class: "chinese-writer-typo-warning",
               }),
             });
           }
