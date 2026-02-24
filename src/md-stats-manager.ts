@@ -22,6 +22,7 @@ interface FileCharCacheEntry {
 interface FolderStats {
   fileCount: number;
   charCount: number;
+  countableFileCount: number;
 }
 
 class CharMilestoneMarker extends GutterMarker {
@@ -284,7 +285,7 @@ export class MdStatsManager {
     const folderStatsMap = await this.getFolderStatsForPaths(folderPaths);
     for (const folderTitleEl of folderTitleEls) {
       const folderPath = (folderTitleEl.getAttribute("data-path") ?? "").trim();
-      const stats = folderStatsMap.get(folderPath) ?? { fileCount: 0, charCount: 0 };
+      const stats = folderStatsMap.get(folderPath) ?? { fileCount: 0, charCount: 0, countableFileCount: 0 };
       this.renderFolderStatsBadge(folderTitleEl, stats);
     }
 
@@ -363,12 +364,18 @@ export class MdStatsManager {
       if ((fileTitleEl.getAttribute("data-path") ?? "") !== filePath) {
         continue;
       }
-      const text = `${this.formatCharCount(charCount)}`;
-      let badgeEl = fileTitleEl.querySelector(".cw-file-md-stats") as HTMLElement | null;
-      if (!badgeEl) {
-        badgeEl = fileTitleEl.createSpan({ cls: "cw-file-md-stats" });
+      const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
+      const badgeEl = fileTitleEl.querySelector(".cw-file-md-stats") as HTMLElement | null;
+      if (!(file instanceof TFile) || file.extension !== "md" || this.shouldSkipFileCharCount(file)) {
+        badgeEl?.remove();
+        return;
       }
-      badgeEl.setText(text);
+      const text = `${this.formatCharCount(charCount)}`;
+      let targetBadgeEl = badgeEl;
+      if (!targetBadgeEl) {
+        targetBadgeEl = fileTitleEl.createSpan({ cls: "cw-file-md-stats" });
+      }
+      targetBadgeEl.setText(text);
       return;
     }
   }
@@ -568,8 +575,13 @@ export class MdStatsManager {
   }
 
   private renderFolderStatsBadge(folderTitleEl: HTMLElement, stats: FolderStats): void {
-    const text = `${stats.fileCount}章 | ${this.formatCharCount(stats.charCount)}`;
+    const hasCountableFiles = (stats.countableFileCount ?? 0) > 0;
     let badgeEl = folderTitleEl.querySelector(".cw-folder-md-stats") as HTMLElement | null;
+    if (!hasCountableFiles) {
+      badgeEl?.remove();
+      return;
+    }
+    const text = `${stats.fileCount}章 | ${this.formatCharCount(stats.charCount)}`;
     if (!badgeEl) {
       badgeEl = folderTitleEl.createSpan({ cls: "cw-folder-md-stats" });
     }
@@ -580,6 +592,11 @@ export class MdStatsManager {
     const filePath = (fileTitleEl.getAttribute("data-path") ?? "").trim();
     const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
     if (!(file instanceof TFile) || file.extension !== "md") {
+      const existing = fileTitleEl.querySelector(".cw-file-md-stats");
+      existing?.remove();
+      return;
+    }
+    if (this.shouldSkipFileCharCount(file)) {
       const existing = fileTitleEl.querySelector(".cw-file-md-stats");
       existing?.remove();
       return;
@@ -615,6 +632,7 @@ export class MdStatsManager {
     const missingPathSet = new Set(missingPaths);
     const aggregated = new Map<string, FolderStats>();
     const files = this.plugin.app.vault.getMarkdownFiles();
+    const skipFlags = files.map((file) => this.shouldSkipFileCharCount(file));
     const counts = await Promise.all(files.map(async (file) => this.getFileCharCount(file)));
 
     for (let i = 0; i < files.length; i++) {
@@ -623,20 +641,24 @@ export class MdStatsManager {
         continue;
       }
       const fileCount = counts[i] ?? 0;
+      const isCountableFile = !(skipFlags[i] ?? false);
       const ancestors = this.getAncestorFolderPaths(file.path);
       for (const ancestor of ancestors) {
         if (!missingPathSet.has(ancestor)) {
           continue;
         }
-        const current = aggregated.get(ancestor) ?? { fileCount: 0, charCount: 0 };
+        const current = aggregated.get(ancestor) ?? { fileCount: 0, charCount: 0, countableFileCount: 0 };
         current.fileCount += 1;
-        current.charCount += fileCount;
+        if (isCountableFile) {
+          current.countableFileCount += 1;
+          current.charCount += fileCount;
+        }
         aggregated.set(ancestor, current);
       }
     }
 
     for (const path of missingPaths) {
-      const stats = aggregated.get(path) ?? { fileCount: 0, charCount: 0 };
+      const stats = aggregated.get(path) ?? { fileCount: 0, charCount: 0, countableFileCount: 0 };
       this.folderStatsCache.set(path, stats);
       result.set(path, stats);
     }
@@ -645,6 +667,20 @@ export class MdStatsManager {
   }
 
   private async getFileCharCount(file: TFile): Promise<number> {
+    if (this.shouldSkipFileCharCount(file)) {
+      const cached = this.fileCharCache.get(file.path);
+      if (
+        cached &&
+        cached.mtime === file.stat.mtime &&
+        cached.size === file.stat.size &&
+        cached.count === 0
+      ) {
+        return 0;
+      }
+      this.updateFileCharCache(file.path, file.stat.mtime, file.stat.size, 0);
+      return 0;
+    }
+
     const cached = this.fileCharCache.get(file.path);
     if (cached && cached.mtime === file.stat.mtime && cached.size === file.stat.size) {
       return cached.count;
@@ -674,6 +710,14 @@ export class MdStatsManager {
     } finally {
       this.pendingFileCharCount.delete(file.path);
     }
+  }
+
+  private shouldSkipFileCharCount(file: TFile): boolean {
+    const frontmatter = this.plugin.app.metadataCache.getFileCache(file)?.frontmatter;
+    if (!frontmatter || typeof frontmatter !== "object") {
+      return false;
+    }
+    return Object.prototype.hasOwnProperty.call(frontmatter, "excalidraw-plugin");
   }
 
   private countMarkdownCharacters(rawText: string): number {
