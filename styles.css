@@ -527,6 +527,60 @@
   font-weight: 700;
 }
 
+.cw-settings-tabs {
+  margin-top: 8px;
+}
+
+.cw-settings-tab-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.cw-settings-tab-button {
+  border: 1px solid var(--background-modifier-border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: var(--background-secondary-alt);
+  color: var(--text-normal);
+  padding: 6px 12px;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+
+.cw-settings-tab-button:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--text-faint);
+}
+
+.cw-settings-tab-button.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+  border-bottom: 1px solid var(--background-primary);
+  font-weight: 700;
+  box-shadow: inset 0 2px 0 color-mix(in srgb, var(--interactive-accent) 70%, white 30%);
+}
+
+.cw-settings-tab-content {
+  border: 1px solid var(--background-modifier-border);
+  border-top: none;
+  border-radius: 0 8px 8px 8px;
+  padding: 12px 10px;
+  background: var(--background-primary);
+}
+
+.cw-settings-tab-panel[hidden] {
+  display: none;
+}
+
+.vertical-tab-content {
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
 /* H2 数量统计 */
 .tree-item-count {
   margin-left: auto;

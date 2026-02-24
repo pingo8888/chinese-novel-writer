@@ -178,6 +178,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
   plugin: ChineseWriterPlugin;
   private isAddingMapping = false;
   private delayedSaveTimer: number | null = null;
+  private activeTabKey: "setting" | "quick" | "check" | "typography" | "other" = "setting";
 
   constructor(app: App, plugin: ChineseWriterPlugin) {
     super(app, plugin);
@@ -201,19 +202,77 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
 
     containerEl.createEl("h2", { text: "中文写作插件设置", cls: "cw-settings-main-title" });
 
+    const tabRoot = containerEl.createDiv({ cls: "cw-settings-tabs" });
+    const tabBar = tabRoot.createDiv({ cls: "cw-settings-tab-bar" });
+    const tabContent = tabRoot.createDiv({ cls: "cw-settings-tab-content" });
+
+    const tabPanels = {
+      setting: tabContent.createDiv({ cls: "cw-settings-tab-panel" }),
+      quick: tabContent.createDiv({ cls: "cw-settings-tab-panel" }),
+      check: tabContent.createDiv({ cls: "cw-settings-tab-panel" }),
+      typography: tabContent.createDiv({ cls: "cw-settings-tab-panel" }),
+      other: tabContent.createDiv({ cls: "cw-settings-tab-panel" }),
+    };
+
+    const tabDefs: Array<{ key: keyof typeof tabPanels; label: string }> = [
+      { key: "setting", label: "设定管理" },
+      { key: "quick", label: "快捷输入" },
+      { key: "check", label: "文本纠错" },
+      { key: "typography", label: "正文排版" },
+      { key: "other", label: "其他功能" },
+    ];
+
+    const tabButtons = new Map<keyof typeof tabPanels, HTMLButtonElement>();
+    const setActiveTab = (key: keyof typeof tabPanels) => {
+      this.activeTabKey = key;
+      tabDefs.forEach(({ key: tabKey }) => {
+        const isActive = tabKey === key;
+        const panel = tabPanels[tabKey];
+        const button = tabButtons.get(tabKey);
+        panel.hidden = !isActive;
+        panel.toggleClass("is-active", isActive);
+        if (button) {
+          button.toggleClass("is-active", isActive);
+          button.setAttribute("aria-selected", isActive ? "true" : "false");
+        }
+      });
+    };
+
+    tabDefs.forEach(({ key, label }) => {
+      const button = tabBar.createEl("button", {
+        text: label,
+        cls: "cw-settings-tab-button",
+      });
+      button.type = "button";
+      button.setAttribute("role", "tab");
+      button.addEventListener("click", () => setActiveTab(key));
+      tabButtons.set(key, button);
+    });
+
+    if (!tabDefs.some((tab) => tab.key === this.activeTabKey)) {
+      this.activeTabKey = "setting";
+    }
+    setActiveTab(this.activeTabKey);
+
+    const settingTabEl = tabPanels.setting;
+    const quickTabEl = tabPanels.quick;
+    const checkTabEl = tabPanels.check;
+    const typographyTabEl = tabPanels.typography;
+    const otherTabEl = tabPanels.other;
+
     // 文件夹对应关系设置
-    containerEl.createEl("h3", { text: "文件夹对应关系" });
-    containerEl.createEl("p", {
+    settingTabEl.createEl("h3", { text: "文件夹对应关系" });
+    settingTabEl.createEl("p", {
       text: "配置小说库和设定库的对应关系。在小说库文件打开时，会显示对应设定库的内容，并高亮关键字。",
       cls: "setting-item-description"
     });
 
     // 显示现有的对应关系
-    const mappingsContainer = containerEl.createDiv({ cls: "folder-mappings-container" });
+    const mappingsContainer = settingTabEl.createDiv({ cls: "folder-mappings-container" });
     this.renderMappings(mappingsContainer);
 
     // 添加新对应关系按钮
-    new Setting(containerEl)
+    new Setting(settingTabEl)
       .setName("添加新对应关系")
       .addButton((button) =>
         button
@@ -228,9 +287,9 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       );
 
     // 高亮样式设置
-    containerEl.createEl("h3", { text: "关键字高亮样式" });
+    settingTabEl.createEl("h3", { text: "关键字高亮样式" });
 
-    new Setting(containerEl)
+    new Setting(settingTabEl)
       .setName("高亮模式")
       .setDesc("选择关键字的高亮方式")
       .addDropdown((dropdown) =>
@@ -245,7 +304,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(settingTabEl)
       .setName("背景色")
       .setDesc("高亮关键字的背景颜色（支持8位HEX，如 #FFFFFF00，最后两位为透明度）")
       .addText((text) =>
@@ -259,7 +318,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(settingTabEl)
       .setName("下划线样式")
       .setDesc("高亮关键字的下划线样式")
       .addDropdown((dropdown) =>
@@ -277,7 +336,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(settingTabEl)
       .setName("下划线粗细")
       .setDesc("高亮关键字的下划线粗细（0-10像素）")
       .addSlider((slider) =>
@@ -292,7 +351,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(settingTabEl)
       .setName("下划线颜色")
       .setDesc("高亮关键字的下划线颜色")
       .addText((text) =>
@@ -306,7 +365,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(settingTabEl)
       .setName("字体粗细")
       .setDesc("高亮关键字的字体粗细")
       .addDropdown((dropdown) =>
@@ -321,7 +380,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(settingTabEl)
       .setName("字体样式")
       .setDesc("高亮关键字的字体样式")
       .addDropdown((dropdown) =>
@@ -336,7 +395,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(settingTabEl)
       .setName("文字颜色")
       .setDesc("高亮关键字的文字颜色（支持8位HEX，如 #4A86E9ff，inherit表示继承原有颜色）")
       .addText((text) =>
@@ -351,9 +410,9 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       );
 
     // 高亮预览栏设置
-    containerEl.createEl("h3", { text: "预览栏设置" });
+    settingTabEl.createEl("h3", { text: "预览栏设置" });
 
-    new Setting(containerEl)
+    new Setting(settingTabEl)
       .setName("正文悬停预览")
       .setDesc("开启后，鼠标悬停正文高亮关键词时显示预览栏")
       .addToggle((toggle) =>
@@ -365,7 +424,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(settingTabEl)
       .setName("右边栏悬停预览")
       .setDesc("开启后，鼠标悬停右边栏时显示预览栏")
       .addToggle((toggle) =>
@@ -377,7 +436,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(settingTabEl)
       .setName("预览栏宽度")
       .setDesc("悬停预览栏宽度（像素）")
       .addSlider((slider) =>
@@ -391,7 +450,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(settingTabEl)
       .setName("预览栏高度")
       .setDesc("悬停预览栏最大高度（像素）")
       .addSlider((slider) =>
@@ -405,7 +464,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(settingTabEl)
       .setName("下方内容最多显示行数")
       .setDesc("超过该行数时显示滚动条")
       .addSlider((slider) =>
@@ -420,7 +479,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       );
 
     // 候选栏设置
-    containerEl.createEl("h3", { text: "设定候选栏设置" });
+    quickTabEl.createEl("h3", { text: "设定候选栏设置" });
 
     let candidatePageSizeText: HTMLDivElement | null = null;
     let candidatePageSizeSlider: { setDisabled: (disabled: boolean) => unknown } | null = null;
@@ -430,7 +489,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       }
     };
 
-    new Setting(containerEl)
+    new Setting(quickTabEl)
       .setName("启用 // 设定候选栏")
       .setDesc("输入 // + 中文关键字时，从设定库中匹配设定候选词")
       .addToggle((toggle) =>
@@ -443,7 +502,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    const pageSizeSetting = new Setting(containerEl)
+    const pageSizeSetting = new Setting(quickTabEl)
       .setName("每页最多显示项数")
       .setDesc("设定候选栏分页显示，每页最多展示的候选词数量")
       .addSlider((slider) =>
@@ -465,12 +524,12 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
     updateCandidatePageSizeDesc(this.plugin.settings.slashH2CandidatePageSize);
 
     // 文本片段设置
-    containerEl.createEl("h3", { text: "文本片段设置" });
+    quickTabEl.createEl("h3", { text: "文本片段设置" });
 
     let snippetPathInput: { setDisabled: (disabled: boolean) => unknown } | null = null;
     const folderPathSuggestions = this.getAllFolderPaths();
 
-    new Setting(containerEl)
+    new Setting(quickTabEl)
       .setName("启用 // 文本片段")
       .setDesc("输入 // + 英文关键字时，从指定目录的 Markdown 文本片段中匹配")
       .addToggle((toggle) =>
@@ -486,7 +545,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(quickTabEl)
       .setName("文本片段目录路径")
       .setDesc("填写 Vault 内目录路径，递归读取该目录及子目录下所有 .md 文件")
       .addText((text) =>
@@ -516,9 +575,9 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       );
 
     // 常见标点检测设置
-    containerEl.createEl("h3", { text: "常见标点检测" });
+    checkTabEl.createEl("h3", { text: "常见标点检测" });
 
-    new Setting(containerEl)
+    new Setting(checkTabEl)
       .setName("启用常见标点检测")
       .setDesc("仅在已配置小说库中的 Markdown 文件内进行检测")
       .addToggle((toggle) =>
@@ -531,7 +590,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(checkTabEl)
       .setName("检测英文逗号（,）")
       .addToggle((toggle) => {
         punctuationOptionToggles.push(toggle);
@@ -544,7 +603,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
+    new Setting(checkTabEl)
       .setName("检测英文句号（.）")
       .addToggle((toggle) => {
         punctuationOptionToggles.push(toggle);
@@ -557,7 +616,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
+    new Setting(checkTabEl)
       .setName("检测英文冒号（:）")
       .addToggle((toggle) => {
         punctuationOptionToggles.push(toggle);
@@ -570,7 +629,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
+    new Setting(checkTabEl)
       .setName("检测英文分号（;）")
       .addToggle((toggle) => {
         punctuationOptionToggles.push(toggle);
@@ -583,7 +642,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
+    new Setting(checkTabEl)
       .setName("检测英文感叹号（!）")
       .addToggle((toggle) => {
         punctuationOptionToggles.push(toggle);
@@ -596,7 +655,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
+    new Setting(checkTabEl)
       .setName("检测英文问号（?）")
       .addToggle((toggle) => {
         punctuationOptionToggles.push(toggle);
@@ -609,7 +668,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
+    new Setting(checkTabEl)
       .setName("检测双引号")
       .setDesc("检测英文双引号（\"）与中文双引号（“”）配对错误")
       .addToggle((toggle) => {
@@ -623,7 +682,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
+    new Setting(checkTabEl)
       .setName("检测单引号")
       .setDesc("检测英文单引号（'）与中文单引号（‘’）配对错误")
       .addToggle((toggle) => {
@@ -637,7 +696,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
+    new Setting(checkTabEl)
       .setName("检测其他常见成对中文标点")
       .setDesc("检测《》 （） 【】 〖〗 〈〉 〔〕 「」 『』 ｛｝ 的配对错误")
       .addToggle((toggle) => {
@@ -652,9 +711,9 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       });
 
     // 编辑区排版设置
-    containerEl.createEl("h3", { text: "编辑区排版" });
+    typographyTabEl.createEl("h3", { text: "编辑区排版" });
 
-    new Setting(containerEl)
+    new Setting(typographyTabEl)
       .setName("启用编辑区排版")
       .setDesc("关闭后不应用行首缩进、行间距和段间距")
       .addToggle((toggle) =>
@@ -669,7 +728,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
 
 
 
-    new Setting(containerEl)
+    new Setting(typographyTabEl)
       .setName("行首缩进（中文字符）")
       .setDesc("仅编辑视图生效，按中文字符宽度缩进")
       .addSlider((slider) =>
@@ -684,7 +743,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(typographyTabEl)
       .setName("行间距")
       .setDesc("仅编辑视图生效")
       .addSlider((slider) =>
@@ -699,7 +758,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(typographyTabEl)
       .setName("段间距")
       .setDesc("仅编辑视图生效；与行间距独立，不叠加")
       .addSlider((slider) =>
@@ -717,9 +776,9 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
 
 
     // 文件打开行为设置
-    containerEl.createEl("h3", { text: "文件打开行为" });
+    otherTabEl.createEl("h3", { text: "文件打开行为" });
 
-    new Setting(containerEl)
+    new Setting(otherTabEl)
       .setName("在新标签页打开")
       .setDesc("通过插件内相关功能打开或新建文件时，是否在新标签页打开（已打开则复用现有标签）")
       .addToggle((toggle) =>
@@ -732,9 +791,9 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       );
 
     // 其他便捷功能
-    containerEl.createEl("h3", { text: "其他便捷功能" });
+    otherTabEl.createEl("h3", { text: "其他便捷功能" });
 
-    new Setting(containerEl)
+    new Setting(otherTabEl)
       .setName("启用字符数统计")
       .setDesc("关闭后不显示统计，且不在后台执行字符统计")
       .addToggle((toggle) =>
@@ -747,7 +806,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(otherTabEl)
       .setName("编辑区标题图标")
       .setDesc("在编辑视图各级标题前显示对应等级图标")
       .addToggle((toggle) =>
@@ -760,7 +819,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(otherTabEl)
       .setName("两端对齐")
       .setDesc("开启后编辑区正文使用两端对齐，并启用自动断词")
       .addToggle((toggle) =>
@@ -773,7 +832,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(otherTabEl)
       .setName("中文标点成对补齐")
       .setDesc("输入前半中文标点时自动补齐后半标点，光标保持在中间")
       .addToggle((toggle) =>
