@@ -8,6 +8,7 @@ import { EditorTypographyManager } from "./editor-typography-manager";
 import { MdStatsManager } from "./md-stats-manager";
 import { ChapterManager } from "./chapter-manager";
 import { SlashH2CompleteManager } from "./slash-h2-complete-manager";
+import { SlashSnippetCompleteManager } from "./slash-snippet-complete-manager";
 import { CnPunctuationAutoPairManager } from "./cn-punctuation-auto-pair-manager";
 
 /**
@@ -22,6 +23,7 @@ export default class ChineseWriterPlugin extends Plugin {
   mdStatsManager: MdStatsManager;
   chapterManager: ChapterManager;
   slashH2CompleteManager: SlashH2CompleteManager;
+  slashSnippetCompleteManager: SlashSnippetCompleteManager;
   cnPunctuationAutoPairManager: CnPunctuationAutoPairManager;
   private pluginDir = "";
   private settingsFilePath = "";
@@ -56,6 +58,9 @@ export default class ChineseWriterPlugin extends Plugin {
     this.chapterManager = new ChapterManager(this);
     // 初始化 //H2 候选管理器
     this.slashH2CompleteManager = new SlashH2CompleteManager(this);
+    // 初始化 //英文片段候选管理器
+    this.slashSnippetCompleteManager = new SlashSnippetCompleteManager(this);
+    await this.slashSnippetCompleteManager.reloadSnippets();
     // 初始化中文标点自动补齐管理器
     this.cnPunctuationAutoPairManager = new CnPunctuationAutoPairManager(this);
 
@@ -69,6 +74,8 @@ export default class ChineseWriterPlugin extends Plugin {
     this.registerEditorExtension(this.mdStatsManager.createHeadingIconExtension());
     // 注册编辑器扩展（// H2 候选输入）
     this.registerEditorExtension(this.slashH2CompleteManager.createEditorExtension());
+    // 注册编辑器扩展（// 英文片段候选输入）
+    this.registerEditorExtension(this.slashSnippetCompleteManager.createEditorExtension());
     // 注册编辑器扩展（中文标点自动补齐）
     this.registerEditorExtension(this.cnPunctuationAutoPairManager.createEditorExtension());
 
@@ -146,6 +153,7 @@ export default class ChineseWriterPlugin extends Plugin {
         // 当文件被修改时，智能更新视图（保持展开状态）
         if (file instanceof TFile && file.extension === "md") {
           this.mdStatsManager.onVaultFileChanged(file.path);
+          this.slashSnippetCompleteManager.onVaultPathChanged(file.path);
           this.smartUpdateView();
           this.updateH3CacheForSettingFile(file.path);
 
@@ -170,6 +178,7 @@ export default class ChineseWriterPlugin extends Plugin {
         // 当新文件被创建时，同步 order.json 并更新视图
         if (file instanceof TFile && file.extension === "md") {
           this.mdStatsManager.onVaultFileChanged(file.path);
+          this.slashSnippetCompleteManager.onVaultPathChanged(file.path);
           this.syncOrderOnFileCreate(file);
           this.updateH3CacheForSettingFile(file.path);
         }
@@ -181,6 +190,7 @@ export default class ChineseWriterPlugin extends Plugin {
         // 当文件被删除时，同步 order.json 并更新视图
         if (file instanceof TFile && file.extension === "md") {
           this.mdStatsManager.onVaultFileChanged(file.path);
+          this.slashSnippetCompleteManager.onVaultPathChanged(file.path);
           this.syncOrderOnFileDelete(file);
           this.updateH3CacheForSettingFile(file.path);
           return;
@@ -198,6 +208,7 @@ export default class ChineseWriterPlugin extends Plugin {
         if (file instanceof TFile && file.extension === "md") {
           this.mdStatsManager.onVaultFileChanged(oldPath);
           this.mdStatsManager.onVaultFileChanged(file.path);
+          this.slashSnippetCompleteManager.onVaultPathChanged(file.path, oldPath);
           this.syncOrderOnFileRename(file, oldPath);
           this.updateH3CacheForSettingFile(oldPath);
           this.updateH3CacheForSettingFile(file.path);
@@ -347,6 +358,16 @@ export default class ChineseWriterPlugin extends Plugin {
       // 将旧的 targetFolder 转换为一个空的对应关系（仅设定库）
       // 用户需要手动配置小说库路径
       console.log("检测到旧版本配置，已删除 targetFolder 字段。请在设置中配置新的文件夹对应关系。");
+    }
+
+    // 迁移旧版本：slashSnippetFilePath -> slashSnippetFolderPath
+    const legacySnippetFilePath = (data as { slashSnippetFilePath?: string } | null)?.slashSnippetFilePath;
+    if (
+      (!this.settings.slashSnippetFolderPath || this.settings.slashSnippetFolderPath.trim().length === 0) &&
+      typeof legacySnippetFilePath === "string" &&
+      legacySnippetFilePath.trim().length > 0
+    ) {
+      this.settings.slashSnippetFolderPath = legacySnippetFilePath.trim();
     }
   }
 

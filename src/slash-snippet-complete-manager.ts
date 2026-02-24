@@ -1,11 +1,19 @@
 import { EditorSelection, Prec } from "@codemirror/state";
 import { EditorView, ViewPlugin, ViewUpdate, keymap } from "@codemirror/view";
+import { TFile, TFolder } from "obsidian";
 import type ChineseWriterPlugin from "./main";
 
 interface SlashQueryMatch {
   from: number;
   to: number;
   query: string;
+}
+
+interface SnippetItem {
+  key: string;
+  content: string;
+  preview: string;
+  order: number;
 }
 
 interface SlashRuntimeHandle {
@@ -16,9 +24,18 @@ interface SlashRuntimeHandle {
   hide(): void;
 }
 
-export class SlashH2CompleteManager {
+export type SlashSnippetReloadStatus = "ok" | "missing-path" | "invalid-folder" | "error";
+
+export interface SlashSnippetReloadResult {
+  status: SlashSnippetReloadStatus;
+  count: number;
+  path: string;
+}
+
+export class SlashSnippetCompleteManager {
   private plugin: ChineseWriterPlugin;
   private runtimeByView: WeakMap<EditorView, SlashRuntimeHandle> = new WeakMap();
+  private snippets: SnippetItem[] = [];
 
   constructor(plugin: ChineseWriterPlugin) {
     this.plugin = plugin;
@@ -33,7 +50,7 @@ export class SlashH2CompleteManager {
         private popupEl: HTMLDivElement | null = null;
         private listEl: HTMLDivElement | null = null;
         private pageInfoEl: HTMLDivElement | null = null;
-        private candidates: string[] = [];
+        private candidates: SnippetItem[] = [];
         private activeIndex = 0;
         private replaceFrom = 0;
         private replaceTo = 0;
@@ -59,7 +76,7 @@ export class SlashH2CompleteManager {
         }
 
         private refresh(): void {
-          if (!manager.plugin.settings.enableSlashH2CandidateBar) {
+          if (!manager.plugin.settings.enableSlashSnippetCandidateBar) {
             this.hide();
             return;
           }
@@ -73,12 +90,8 @@ export class SlashH2CompleteManager {
             this.hide();
             return;
           }
-          if (manager.shouldDeferToEnglishSnippet(match.query)) {
-            this.hide();
-            return;
-          }
 
-          const filtered = manager.filterCandidates(manager.plugin.getCurrentTreeH2Texts(), match.query);
+          const filtered = manager.filterCandidates(match.query);
           if (filtered.length === 0) {
             this.hide();
             return;
@@ -138,12 +151,11 @@ export class SlashH2CompleteManager {
             const index = pageStart + offset;
             const rowEl = this.listEl!.createDiv({ cls: "cw-slash-h2-item" });
             rowEl.dataset.index = String(index);
-            rowEl.setText(item);
+            rowEl.setText(item.preview);
             if (index === this.activeIndex) rowEl.addClass("is-active");
           });
 
           this.pageInfoEl.setText(`第 ${currentPage + 1}/${pageCount} 页（←/→ 翻页，↑/↓ 选择，Enter 确认）`);
-
           this.popupEl.style.display = "flex";
           this.open = true;
           this.positionPopup(pos);
@@ -233,12 +245,13 @@ export class SlashH2CompleteManager {
 
         private accept(): void {
           if (!this.open || this.candidates.length === 0) return;
-          const value = this.candidates[this.activeIndex];
-          if (!value) return;
+          const selected = this.candidates[this.activeIndex];
+          if (!selected) return;
+          const resolved = manager.resolveSnippetInsert(selected.content);
 
           this.view.dispatch({
-            changes: { from: this.replaceFrom, to: this.replaceTo, insert: value },
-            selection: EditorSelection.cursor(this.replaceFrom + value.length),
+            changes: { from: this.replaceFrom, to: this.replaceTo, insert: resolved.text },
+            selection: EditorSelection.cursor(this.replaceFrom + resolved.cursorOffset),
             scrollIntoView: true,
           });
           this.hide();
@@ -284,6 +297,59 @@ export class SlashH2CompleteManager {
     return [popupPlugin, slashKeymap];
   }
 
+  async reloadSnippets(): Promise<SlashSnippetReloadResult> {
+    const path = this.plugin.settings.slashSnippetFolderPath.trim();
+    if (!path) {
+      this.snippets = [];
+      return { status: "missing-path", count: 0, path };
+    }
+
+    const folder = this.plugin.app.vault.getAbstractFileByPath(path);
+    if (!(folder instanceof TFolder)) {
+      this.snippets = [];
+      return { status: "invalid-folder", count: 0, path };
+    }
+
+    try {
+      const prefix = folder.path ? `${folder.path}/` : "";
+      const allMarkdownFiles = this.plugin.app.vault
+        .getMarkdownFiles()
+        .filter((file) => file.path.startsWith(prefix))
+        .sort((a, b) => a.path.localeCompare(b.path, "zh-Hans-CN"));
+
+      const snippets: SnippetItem[] = [];
+      let order = 0;
+      for (const file of allMarkdownFiles) {
+        const content = await this.plugin.app.vault.cachedRead(file);
+        const parsed = this.parseSnippets(content);
+        for (const item of parsed) {
+          snippets.push({
+            key: item.key,
+            content: item.content,
+            preview: item.preview,
+            order: order++,
+          });
+        }
+      }
+      this.snippets = snippets;
+      return { status: "ok", count: this.snippets.length, path };
+    } catch (error) {
+      console.error("Failed to load slash snippets:", error);
+      this.snippets = [];
+      return { status: "error", count: 0, path };
+    }
+  }
+
+  onVaultPathChanged(path: string, oldPath?: string): void {
+    const configured = this.plugin.settings.slashSnippetFolderPath.trim();
+    if (!configured) return;
+    const inConfigured = path === configured || path.startsWith(`${configured}/`);
+    const oldInConfigured = oldPath === configured || (!!oldPath && oldPath.startsWith(`${configured}/`));
+    if (inConfigured || oldInConfigured) {
+      void this.reloadSnippets();
+    }
+  }
+
   private handleKey(
     view: EditorView,
     action: "down" | "up" | "pageNext" | "pagePrev" | "accept" | "close"
@@ -307,36 +373,32 @@ export class SlashH2CompleteManager {
     const cursorPos = selection.head;
     const line = view.state.doc.lineAt(cursorPos);
     const beforeCursor = line.text.slice(0, cursorPos - line.from);
-    const match = /\/\/([^\s/]*)$/.exec(beforeCursor);
+    const match = /\/\/([A-Za-z]+)$/.exec(beforeCursor);
     if (!match) return null;
 
     return { from: line.from + match.index, to: cursorPos, query: match[1] ?? "" };
   }
 
-  private filterCandidates(values: string[], query: string): string[] {
-    const normalizedQuery = query.trim().toLowerCase();
-    const uniqueValues = Array.from(
-      new Set(values.map((item) => item.trim()).filter((item) => item.length > 0))
-    );
-
-    if (!normalizedQuery) {
-      return uniqueValues.sort((a, b) => a.localeCompare(b, "zh-Hans-CN"));
+  private filterCandidates(query: string): SnippetItem[] {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) {
+      return [...this.snippets].sort((a, b) => a.order - b.order);
     }
 
-    const filtered = uniqueValues.filter((item) => item.toLowerCase().includes(normalizedQuery));
+    const filtered = this.snippets.filter((item) => item.key.toLowerCase().includes(normalized));
     filtered.sort((a, b) => {
-      const aLower = a.toLowerCase();
-      const bLower = b.toLowerCase();
-      const aStarts = aLower.startsWith(normalizedQuery) ? 0 : 1;
-      const bStarts = bLower.startsWith(normalizedQuery) ? 0 : 1;
+      const aLower = a.key.toLowerCase();
+      const bLower = b.key.toLowerCase();
+      const aStarts = aLower.startsWith(normalized) ? 0 : 1;
+      const bStarts = bLower.startsWith(normalized) ? 0 : 1;
       if (aStarts !== bStarts) return aStarts - bStarts;
 
-      const aIndex = aLower.indexOf(normalizedQuery);
-      const bIndex = bLower.indexOf(normalizedQuery);
+      const aIndex = aLower.indexOf(normalized);
+      const bIndex = bLower.indexOf(normalized);
       if (aIndex !== bIndex) return aIndex - bIndex;
 
-      if (a.length !== b.length) return a.length - b.length;
-      return a.localeCompare(b, "zh-Hans-CN");
+      if (aLower.length !== bLower.length) return aLower.length - bLower.length;
+      return a.order - b.order;
     });
     return filtered;
   }
@@ -347,9 +409,92 @@ export class SlashH2CompleteManager {
     return Math.max(1, Math.floor(configured));
   }
 
-  private shouldDeferToEnglishSnippet(query: string): boolean {
-    if (!this.plugin.settings.enableSlashSnippetCandidateBar) return false;
-    if (!query) return false;
-    return /^[A-Za-z]+$/.test(query);
+  private parseSnippets(content: string): SnippetItem[] {
+    const lines = content.split("\n");
+    const snippets: SnippetItem[] = [];
+
+    let currentKey = "";
+    let currentPreview = "";
+    let currentContentLines: string[] = [];
+    let order = 0;
+
+    const flush = () => {
+      if (!currentKey) return;
+      const key = currentKey.trim();
+      const preview = this.stripCursorMarker(currentPreview).trim();
+      if (!/^[A-Za-z]+$/.test(key)) {
+        currentKey = "";
+        currentPreview = "";
+        currentContentLines = [];
+        return;
+      }
+
+      const normalizedContent = this.normalizeContent(currentContentLines);
+      if (!normalizedContent) {
+        currentKey = "";
+        currentPreview = "";
+        currentContentLines = [];
+        return;
+      }
+
+      snippets.push({
+        key,
+        content: normalizedContent,
+        preview: preview || this.buildPreviewFromContent(normalizedContent),
+        order: order++,
+      });
+      currentKey = "";
+      currentPreview = "";
+      currentContentLines = [];
+    };
+
+    for (const line of lines) {
+      const headingMatch = /^##\s+([A-Za-z]+)(?:@(.*))?\s*$/.exec(line.trim());
+      if (headingMatch) {
+        flush();
+        currentKey = headingMatch[1] ?? "";
+        currentPreview = (headingMatch[2] ?? "").trim();
+        continue;
+      }
+
+      if (currentKey) {
+        currentContentLines.push(line);
+      }
+    }
+
+    flush();
+    return snippets;
   }
+
+  private normalizeContent(lines: string[]): string {
+    let start = 0;
+    let end = lines.length;
+    while (start < end && (lines[start] ?? "").trim().length === 0) start += 1;
+    while (end > start && (lines[end - 1] ?? "").trim().length === 0) end -= 1;
+    return lines.slice(start, end).join("\n");
+  }
+
+  private buildPreviewFromContent(content: string): string {
+    return this.stripCursorMarker(content).replace(/\s+/g, " ").trim();
+  }
+
+  private resolveSnippetInsert(raw: string): { text: string; cursorOffset: number } {
+    const marker = "{$cursor}";
+    const firstMarkerIndex = raw.indexOf(marker);
+    const markerLength = marker.length;
+    let text = raw;
+
+    if (firstMarkerIndex >= 0) {
+      text = `${raw.slice(0, firstMarkerIndex)}${raw.slice(firstMarkerIndex + markerLength)}`;
+    }
+    text = text.split(marker).join("");
+
+    const cursorOffset = firstMarkerIndex >= 0 ? firstMarkerIndex : text.length;
+    return { text, cursorOffset };
+  }
+
+  private stripCursorMarker(text: string): string {
+    return text.split("{$cursor}").join("");
+  }
+
 }

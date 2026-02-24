@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, TFolder } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting, TFolder } from "obsidian";
 import type ChineseWriterPlugin from "./main";
 
 /**
@@ -112,8 +112,12 @@ export interface ChineseWriterSettings {
   enableEditorHeadingIcons: boolean;
   /** 是否启用 // 候选栏 */
   enableSlashH2CandidateBar: boolean;
+  /** 是否启用 // 英文片段候选栏 */
+  enableSlashSnippetCandidateBar: boolean;
   /** // 候选栏每页最大显示项 */
   slashH2CandidatePageSize: number;
+  /** // 文本片段来源目录路径（递归读取目录下所有 md） */
+  slashSnippetFolderPath: string;
   /** 是否启用中文标点成对自动补齐 */
   enableCnPunctuationAutoPair: boolean;
 }
@@ -161,7 +165,9 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
   enableMdStats: false,
   enableEditorHeadingIcons: false,
   enableSlashH2CandidateBar: false,
+  enableSlashSnippetCandidateBar: false,
   slashH2CandidatePageSize: 8,
+  slashSnippetFolderPath: "",
   enableCnPunctuationAutoPair: false,
 };
 
@@ -414,7 +420,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       );
 
     // 候选栏设置
-    containerEl.createEl("h3", { text: "候选栏设置" });
+    containerEl.createEl("h3", { text: "设定候选栏设置" });
 
     let candidatePageSizeText: HTMLDivElement | null = null;
     let candidatePageSizeSlider: { setDisabled: (disabled: boolean) => unknown } | null = null;
@@ -425,8 +431,8 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
     };
 
     new Setting(containerEl)
-      .setName("启用 // 候选栏")
-      .setDesc("关闭时不响应 // 触发词汇候选")
+      .setName("启用 // 设定候选栏")
+      .setDesc("输入 // + 中文关键字时，从设定库中匹配设定候选词")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.enableSlashH2CandidateBar)
@@ -439,7 +445,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
 
     const pageSizeSetting = new Setting(containerEl)
       .setName("每页最多显示项数")
-      .setDesc("候选栏分页显示，每页最多展示的候选词数量")
+      .setDesc("设定候选栏分页显示，每页最多展示的候选词数量")
       .addSlider((slider) =>
       (candidatePageSizeSlider = slider, slider
         .setLimits(1, 20, 1)
@@ -457,6 +463,57 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       text: "",
     });
     updateCandidatePageSizeDesc(this.plugin.settings.slashH2CandidatePageSize);
+
+    // 文本片段设置
+    containerEl.createEl("h3", { text: "文本片段设置" });
+
+    let snippetPathInput: { setDisabled: (disabled: boolean) => unknown } | null = null;
+    const folderPathSuggestions = this.getAllFolderPaths();
+
+    new Setting(containerEl)
+      .setName("启用 // 文本片段")
+      .setDesc("输入 // + 英文关键字时，从指定目录的 Markdown 文本片段中匹配")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.enableSlashSnippetCandidateBar)
+          .onChange(async (value) => {
+            this.plugin.settings.enableSlashSnippetCandidateBar = value;
+            snippetPathInput?.setDisabled(!value);
+            await this.plugin.saveSettings();
+            if (value) {
+              await this.plugin.slashSnippetCompleteManager.reloadSnippets();
+            }
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("文本片段目录路径")
+      .setDesc("填写 Vault 内目录路径，递归读取该目录及子目录下所有 .md 文件")
+      .addText((text) =>
+      (snippetPathInput = text,
+        text.inputEl.addEventListener("blur", async () => {
+          const trimmed = this.plugin.settings.slashSnippetFolderPath.trim();
+          this.plugin.settings.slashSnippetFolderPath = trimmed;
+          await this.plugin.saveSettings();
+          const result = await this.plugin.slashSnippetCompleteManager.reloadSnippets();
+          if (trimmed.length > 0 && result.status === "invalid-folder") {
+            new Notice("文本片段目录路径无效：请填写 Vault 内目录路径");
+          } else if (result.status === "error") {
+            new Notice("文本片段加载失败，请检查目录和文件内容");
+          } else if (result.status === "ok" && result.count === 0) {
+            new Notice("文本片段目录已加载，但未解析到可用片段（需使用 ## key 或 ## key@预览文字 + 正文）");
+          }
+        }),
+        text
+          .setPlaceholder("文本片段")
+          .setValue(this.plugin.settings.slashSnippetFolderPath)
+          .setDisabled(!this.plugin.settings.enableSlashSnippetCandidateBar)
+          .onChange((value) => {
+            this.plugin.settings.slashSnippetFolderPath = value;
+            this.scheduleDelayedSave();
+          }),
+        this.bindFolderPathSuggestionPanel(text.inputEl, folderPathSuggestions))
+      );
 
     // 常见标点检测设置
     containerEl.createEl("h3", { text: "常见标点检测" });
@@ -923,6 +980,134 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       .map((folder) => folder.path)
       .filter((path) => path.trim().length > 0)
       .sort((a, b) => a.localeCompare(b, "zh-Hans-CN"));
+  }
+
+  private bindFolderPathSuggestionPanel(inputEl: HTMLInputElement, suggestions: string[]): void {
+    document
+      .querySelectorAll(".cw-snippet-folder-suggestion-container")
+      .forEach((el) => el.remove());
+
+    const suggestionContainer = document.createElement("div");
+    suggestionContainer.classList.add(
+      "cw-suggestion-container",
+      "cw-suggestion-container-floating",
+      "cw-snippet-folder-suggestion-container"
+    );
+    document.body.appendChild(suggestionContainer);
+    suggestionContainer.hidden = true;
+
+    let filteredSuggestions: string[] = [];
+    let activeSuggestionIndex = -1;
+
+    const updateSuggestionPosition = () => {
+      const rect = inputEl.getBoundingClientRect();
+      suggestionContainer.style.left = `${Math.round(rect.left)}px`;
+      suggestionContainer.style.top = `${Math.round(rect.bottom + 4)}px`;
+      suggestionContainer.style.width = `${Math.round(rect.width)}px`;
+    };
+
+    const updateActiveSuggestion = () => {
+      const rows = Array.from(suggestionContainer.children) as HTMLElement[];
+      rows.forEach((row, idx) => {
+        row.classList.toggle("is-active", idx === activeSuggestionIndex);
+      });
+      if (activeSuggestionIndex >= 0 && activeSuggestionIndex < rows.length) {
+        rows[activeSuggestionIndex]?.scrollIntoView({ block: "nearest" });
+      }
+    };
+
+    const acceptActiveSuggestion = (): boolean => {
+      if (activeSuggestionIndex < 0 || activeSuggestionIndex >= filteredSuggestions.length) {
+        return false;
+      }
+      const selected = filteredSuggestions[activeSuggestionIndex];
+      if (!selected) return false;
+      inputEl.value = selected;
+      inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+      suggestionContainer.hidden = true;
+      suggestionContainer.empty();
+      filteredSuggestions = [];
+      activeSuggestionIndex = -1;
+      return true;
+    };
+
+    const renderSuggestions = (keyword: string) => {
+      const normalized = keyword.trim().toLowerCase();
+      if (!normalized) {
+        suggestionContainer.hidden = true;
+        suggestionContainer.empty();
+        filteredSuggestions = [];
+        activeSuggestionIndex = -1;
+        return;
+      }
+
+      filteredSuggestions = suggestions
+        .filter((item) => item.toLowerCase().includes(normalized))
+        .slice(0, 80);
+
+      suggestionContainer.empty();
+      if (filteredSuggestions.length === 0) {
+        suggestionContainer.hidden = true;
+        activeSuggestionIndex = -1;
+        return;
+      }
+
+      suggestionContainer.hidden = false;
+      updateSuggestionPosition();
+      activeSuggestionIndex = 0;
+
+      filteredSuggestions.forEach((item, idx) => {
+        const row = suggestionContainer.createDiv({ text: item, cls: "cw-suggestion-row" });
+        row.addEventListener("mouseenter", () => {
+          activeSuggestionIndex = idx;
+          updateActiveSuggestion();
+        });
+        row.addEventListener("click", () => {
+          activeSuggestionIndex = idx;
+          acceptActiveSuggestion();
+          inputEl.focus();
+        });
+      });
+
+      updateActiveSuggestion();
+    };
+
+    inputEl.addEventListener("focus", () => renderSuggestions(inputEl.value));
+    inputEl.addEventListener("input", () => {
+      activeSuggestionIndex = 0;
+      renderSuggestions(inputEl.value);
+    });
+    inputEl.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (event.key === "ArrowDown" && !suggestionContainer.hidden) {
+        event.preventDefault();
+        if (filteredSuggestions.length > 0) {
+          activeSuggestionIndex =
+            (activeSuggestionIndex + 1 + filteredSuggestions.length) % filteredSuggestions.length;
+          updateActiveSuggestion();
+        }
+      } else if (event.key === "ArrowUp" && !suggestionContainer.hidden) {
+        event.preventDefault();
+        if (filteredSuggestions.length > 0) {
+          activeSuggestionIndex =
+            activeSuggestionIndex <= 0 ? filteredSuggestions.length - 1 : activeSuggestionIndex - 1;
+          updateActiveSuggestion();
+        }
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        if (!suggestionContainer.hidden && filteredSuggestions.length > 0) {
+          acceptActiveSuggestion();
+        }
+        inputEl.blur();
+      } else if (event.key === "Escape" && !suggestionContainer.hidden) {
+        event.preventDefault();
+        suggestionContainer.hidden = true;
+      }
+    });
+    inputEl.addEventListener("blur", () => {
+      setTimeout(() => {
+        suggestionContainer.hidden = true;
+      }, 120);
+    });
   }
 
   /**
