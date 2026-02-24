@@ -1,55 +1,95 @@
-# 中文小说写作助手(Chinese Novel Writer)
+<div align="center">
+	<h1>Chinese Novel Writer - 中文小说写作助手</h1>
+	<img src="https://img.shields.io/github/downloads/pingo8888/chinese-novel-writer/total" alt="GitHub Downloads (all assets, all releases)" />
+	<img src="https://img.shields.io/github/v/release/pingo8888/chinese-novel-writer" alt="GitHub release (latest by date)" />
+	<img src="https://img.shields.io/github/last-commit/pingo8888/chinese-novel-writer" alt="GitHub last commit" />
+	<img src="https://img.shields.io/github/issues/pingo8888/chinese-novel-writer" alt="GitHub issues" />
+	<img src="https://img.shields.io/github/stars/pingo8888/chinese-novel-writer?style=social" alt="GitHub stars" />
+</div>
 
-中文小说写作的一些便捷小功能，包括：
+<hr style="border-top: 2px dashed #ccc;">
 
-- 正文设定关键字高亮功能
-- 独立的右边栏进行设定管理
-- 高亮关键字的预览栏，方便查看设定
-- 正文“//+中文关键字”快速使用现有设定名
-- 正文“//+英文关键字”快速输入文本片段
-- 更准确的中文字数统计（状态栏与左侧文件管理器）
-- 检测并提示错误的常见英文标点
-- 提供命令全文自动修改常见英文标点
-- 编辑视图下，可配置的行首缩进、行间距和段间距
-- 以及其他一些便捷功能
+一款辅助中文小说作者写作的 Obsidian 插件，提供一系列开箱即用的便捷功能。
 
-**功能示意图：**
+<hr style="border-top: 2px dashed #ccc;">
 
-## 关键字高亮
-![](./images/keyword%20highlight.png)
+## ✨设定库及关键字高亮功能
 
-## 右边栏设定管理
-![](./images/right%20panel.png)
+- 灵活、方便地**建立自己的小说设定库**，并提供右边设定视图，方便进行分类、排序和整理
+- 同时提供正文内的**设定关键字高亮**，鼠标悬停高亮时，显示设定的具体内容，提供写作时的提醒
+- 设定库文件本质上只是一个**本地的、普通的md文件**，也可直接打开编辑
 
-## 关键字预览栏
-![](./images/keyword%20preview%20tips.gif)
+![](./images/插件全局预览.png)
 
-## 右键菜单快速添加设定
-![](./images/add%20keyword%20quickly.png)
+<hr style="border-top: 2px dashed #ccc;">
 
-## 正文“//+中文关键字”快速使用现有设定名
-![](./images/slash%20h2%20keywords.gif)
+## ✨右键菜单快速添加设定
 
-## 正文“//+英文关键字”快速输入文本片段
-![](./images/slash%20snippets.gif)
+- 无需离开当前页面，鼠标选中文本并点击右键菜单即可将其添加入设定库
+- 添加时还可以选择现有的设定分类，对其进行预归类
 
-## 中文字数统计
-![](./images/chinese%20word%20counter%20status%20bar.png)
-![](./images/chinese%20word%20counter%20file%20explorer.png)
+![](./images/右键菜单快捷添加设定.png)
 
-## 常见英文标点检测与修复命令
-![](./images/punctuation%20error.png)
+<hr style="border-top: 2px dashed #ccc;">
 
-![](./images/cmd%20for%20auto%20correct%20punctuation%20error.png)
+## ✨正文中快速引用现有设定
 
-## 新建章节命令（当前最大章节数字+1）
-![](./images/cmd%20for%20create%20new%20chapter.png)
+- 在正文中输入“//+中文检索词”即可直接引用现有设定，减少前后设定不一致问题
+- “中文检索词”支持**模糊搜索**，并提供类似输入法的下拉预选栏方便进行选择
 
-## 侧边栏文字里程碑（每500字）
-![](./images/left%20side%20word%20milestone.png)
+![](./images/便捷引用已有设定.gif)
 
-## 正文左侧标题等级图标
-![](./images/edit%20view%20heading%20icon.png)
+<hr style="border-top: 2px dashed #ccc;">
+
+## ✨更准确的中文字数统计
+
+- 在按字符(character)统计字数的基础上，针对小说字数统计进行了优化
+- 除右下角字数统计外，在左侧文件管理器上，也增加了同步的章节和字数统计
+
+![](./images/中文字数统计.png)
+
+<hr style="border-top: 2px dashed #ccc;">
+
+## ✨侧边栏字数里程碑（每500字）
+
+- 在行号右侧，添加字数里程碑显示，方便了解本章写作进度
+
+![](./images/侧边栏文字里程碑.png)
+
+<hr style="border-top: 2px dashed #ccc;">
+
+## ✨编辑区排版功能：行首缩进、行间距、段间距
+
+- 提供行首缩进、行间距、段间距设定，提高阅读、写作时的浏览体验
+
+![](./images/正文排版功能.gif)
+
+<hr style="border-top: 2px dashed #ccc;">
+
+## ✨常见英文标点检测与修复
+
+- 提供中文文本中，自动检测错误英文标点的功能
+- 提供手动修复英文标点错误命令，可批量手动修复检测出的英文标点
+
+<hr style="border-top: 2px dashed #ccc;">
+
+![](./images/自动检测和手动修复英文标点.gif)
+
+## ✨正文快速输入自定义文本片段
+
+- 可自定义文本片段，并提供快速输入片段功能
+- 文本片段本质上只是**本地的md文件**，可自己打开编辑
+
+![](./images/快捷输入文本片段.gif)
+
+## ✨自定义错别字和敏感词检测与修复
+
+- 可自定义错别字和敏感词，会在正文对其进行检测和提示
+- 提供手动修改错别字和敏感词命令，可批量手动修复检测出的错别字和敏感词
+
+![](./images/错别字和敏感词修复.gif)
+
+<hr style="border-top: 2px dashed #ccc;">
 
 # 使用方法
 
@@ -99,6 +139,8 @@
 
 ```
 
+<hr style="border-top: 2px dashed #ccc;">
+
 ## 文本片段格式约定
 
 如果要使用文本片段功能，需遵守以下约定：
@@ -124,6 +166,8 @@
 
 ```
 
+<hr style="border-top: 2px dashed #ccc;">
+
 ## 自定义错别字与敏感词词典格式约定
 
 如果要使用自定义错别字与敏感词功能，需设置相应词典，词典文件（md文件）需遵守以下约定：
@@ -139,3 +183,32 @@
 敏感
 
 ```
+
+<hr style="border-top: 2px dashed #ccc;">
+
+## 📝 命令列表
+
+通过 `Ctrl/Cmd+P` 访问这些命令：
+
+- **新建章节** - 在当前最大章节数字编号基础上新建章节
+- **自动修正当前文档标点问题** - 自动修正当前文档的英文标点和中文标点不配对问题
+- **自动修正当前文档错别字和敏感词** - 自动修正当前文档的错别字和敏感词（错别字和敏感词需自定义）
+
+<hr style="border-top: 2px dashed #ccc;">
+
+## 🤝 支持
+
+如果您觉得 Chinese Novel Writer 有帮助，请考虑支持其开发：
+
+- [⭐ 在 GitHub 上给项目加星](https://github.com/pingo8888/chinese-novel-writer)
+- [🐛 报告问题或建议功能](https://github.com/pingo8888/chinese-novel-writer/issues)
+
+<hr style="border-top: 2px dashed #ccc;">
+
+## 📄 许可证
+
+MIT License - 可自由使用和修改。
+
+<hr style="border-top: 2px dashed #ccc;">
+
+**Made with ❤️ by [pingo8888](https://github.com/pingo8888)**
