@@ -264,12 +264,12 @@ export class HighlightManager {
   }
 
   private extractBodyLines(lines: string[]): string[] {
-    const metaLinePattern = /^【(?:别名|状态)】/;
+    const metaLinePattern = /【(?:别名|状态)】/;
     return lines
       .map((line) => line.trim())
+      .map((line) => line.replace(/^[-*+]\s+/, "").trim())
       .filter((line) => line.length > 0)
       .filter((line) => !metaLinePattern.test(line))
-      .map((line) => line.replace(/^[-*+]\s+/, "").trim())
       .filter((line) => line.length > 0);
   }
 
