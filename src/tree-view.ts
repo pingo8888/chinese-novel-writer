@@ -26,7 +26,7 @@ export class TreeView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "中文写作";
+    return "中文小说写作";
   }
 
   getIcon(): string {

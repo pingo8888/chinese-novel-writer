@@ -12,7 +12,7 @@ import { SlashSnippetCompleteManager } from "./slash-snippet-complete-manager";
 import { CnPunctuationAutoPairManager } from "./cn-punctuation-auto-pair-manager";
 
 /**
- * 中文写作插件主类
+ * 中文小说写作插件主类
  */
 export default class ChineseWriterPlugin extends Plugin {
   settings: ChineseWriterSettings;
@@ -130,7 +130,7 @@ export default class ChineseWriterPlugin extends Plugin {
     });
 
     // 添加功能区图标
-    this.addRibbonIcon("book-type", "中文写作", () => {
+    this.addRibbonIcon("book-type", "中文小说写作", () => {
       this.activateView();
     });
 

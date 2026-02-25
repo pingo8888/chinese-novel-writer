@@ -223,7 +223,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
 
     containerEl.empty();
 
-    containerEl.createEl("h2", { text: "中文写作插件设置", cls: "cw-settings-main-title" });
+    containerEl.createEl("h2", { text: "中文小说写作插件设置", cls: "cw-settings-main-title" });
 
     const tabRoot = containerEl.createDiv({ cls: "cw-settings-tabs" });
     const tabBar = tabRoot.createDiv({ cls: "cw-settings-tab-bar" });
@@ -502,7 +502,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       );
 
     // 候选栏设置
-    quickTabEl.createEl("h3", { text: "设定候选栏设置" });
+    quickTabEl.createEl("h3", { text: "快捷输入设定设置" });
 
     let candidatePageSizeText: HTMLDivElement | null = null;
     let candidatePageSizeSlider: { setDisabled: (disabled: boolean) => unknown } | null = null;
@@ -513,7 +513,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
     };
 
     new Setting(quickTabEl)
-      .setName("启用 // 设定候选栏")
+      .setName("启用 // 快速输入现有设定")
       .setDesc("输入 // + 中文关键字时，从设定库中匹配设定候选词")
       .addToggle((toggle) =>
         toggle
