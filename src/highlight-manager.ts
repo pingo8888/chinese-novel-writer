@@ -1462,7 +1462,10 @@ export class HighlightManager {
    */
   updateStyles(): void {
     const style = this.plugin.settings.highlightStyle;
-    const decorationLine = style.borderWidth > 0 ? "underline" : "none";
+    const hasUnderline = style.borderWidth > 0 && style.borderStyle !== "none";
+    const decorationLine = hasUnderline ? "underline" : "none";
+    const decorationStyle = style.borderStyle === "none" ? "solid" : style.borderStyle;
+    const decorationThickness = hasUnderline ? style.borderWidth : 0;
 
     // 移除旧的样式
     const oldStyle = document.getElementById("chinese-writer-highlight-style");
@@ -1477,9 +1480,9 @@ export class HighlightManager {
       .chinese-writer-highlight {
         background-color: ${style.backgroundColor};
         text-decoration-line: ${decorationLine} !important;
-        text-decoration-style: ${style.borderStyle} !important;
+        text-decoration-style: ${decorationStyle} !important;
         text-decoration-color: ${style.borderColor} !important;
-        text-decoration-thickness: ${style.borderWidth}px !important;
+        text-decoration-thickness: ${decorationThickness}px !important;
         text-underline-offset: 8px !important;
         text-decoration-skip-ink: none !important;
         font-weight: ${style.fontWeight};

@@ -17,6 +17,7 @@ export interface FolderMapping {
  * 高亮模式
  */
 export type HighlightMode = "first" | "all";
+export type HighlightUnderlineStyle = "none" | "solid" | "dashed" | "dotted" | "double" | "wavy";
 
 /**
  * 高亮样式配置
@@ -26,8 +27,8 @@ export interface HighlightStyle {
   mode: HighlightMode;
   /** 背景色 */
   backgroundColor: string;
-  /** 下划线样式 (solid, dashed, dotted, double, wavy) */
-  borderStyle: string;
+  /** 下划线样式 (none, solid, dashed, dotted, double, wavy) */
+  borderStyle: HighlightUnderlineStyle;
   /** 边框粗细 (px) */
   borderWidth: number;
   /** 边框颜色 */
@@ -346,13 +347,14 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       .setDesc("高亮关键字的下划线样式")
       .addDropdown((dropdown) =>
         dropdown
+          .addOption("none", "无线条")
           .addOption("solid", "实线")
           .addOption("dashed", "虚线")
           .addOption("dotted", "点线")
           .addOption("double", "双线")
           .addOption("wavy", "波浪线")
           .setValue(this.plugin.settings.highlightStyle.borderStyle)
-          .onChange(async (value) => {
+          .onChange(async (value: HighlightUnderlineStyle) => {
             this.plugin.settings.highlightStyle.borderStyle = value;
             await this.plugin.saveSettings();
             this.updateHighlightStyles();
