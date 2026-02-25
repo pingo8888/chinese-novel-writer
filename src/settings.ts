@@ -108,6 +108,8 @@ export interface ChineseWriterSettings {
   openInNewTab: boolean;
   /** 是否启用字符数统计功能 */
   enableMdStats: boolean;
+  /** 字符统计是否仅统计 folderMappings 中配置的小说库与设定库 */
+  mdStatsOnlyMappedFolders: boolean;
   /** 是否在编辑区标题前显示等级图标 */
   enableEditorHeadingIcons: boolean;
   /** 是否启用 // 候选栏 */
@@ -167,6 +169,7 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
   enableTreeH2HoverPreview: false,
   openInNewTab: true,
   enableMdStats: false,
+  mdStatsOnlyMappedFolders: false,
   enableEditorHeadingIcons: false,
   enableSlashH2CandidateBar: false,
   enableSlashSnippetCandidateBar: false,
@@ -870,6 +873,19 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
             this.plugin.settings.enableMdStats = value;
             await this.plugin.saveSettings();
             this.plugin.mdStatsManager.setEnabled(value);
+          })
+      );
+
+    new Setting(otherTabEl)
+      .setName("仅统计小说库与设定库")
+      .setDesc("开启后文件管理器仅统计文件夹对应关系中配置的小说库和设定库；状态栏字数统计不受影响")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.mdStatsOnlyMappedFolders)
+          .onChange(async (value) => {
+            this.plugin.settings.mdStatsOnlyMappedFolders = value;
+            await this.plugin.saveSettings();
+            this.plugin.mdStatsManager.onVaultFileChanged();
           })
       );
 

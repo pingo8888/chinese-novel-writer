@@ -309,8 +309,13 @@ export class MdStatsManager {
     this.setStatusBarText(fileCount, selectedCount);
 
     if (update.docChanged) {
+      const isCountableForExplorer = !this.shouldSkipFileCharCount(file);
       const previousFileCount = this.fileCharCache.get(file.path)?.count;
       this.updateFileCharCache(file.path, file.stat.mtime, file.stat.size, fileCount);
+      if (!isCountableForExplorer) {
+        this.renderVisibleFileBadgeByPath(file.path, fileCount);
+        return;
+      }
       if (previousFileCount === undefined) {
         this.folderStatsCache.clear();
         this.scheduleFileExplorerRefresh();
@@ -631,7 +636,9 @@ export class MdStatsManager {
 
     const missingPathSet = new Set(missingPaths);
     const aggregated = new Map<string, FolderStats>();
-    const files = this.plugin.app.vault.getMarkdownFiles();
+    const files = this.plugin.app.vault
+      .getMarkdownFiles()
+      .filter((file) => this.isFileInStatsScope(file));
     const skipFlags = files.map((file) => this.shouldSkipFileCharCount(file));
     const counts = await Promise.all(files.map(async (file) => this.getFileCharCount(file)));
 
@@ -713,6 +720,9 @@ export class MdStatsManager {
   }
 
   private shouldSkipFileCharCount(file: TFile): boolean {
+    if (!this.isFileInStatsScope(file)) {
+      return true;
+    }
     const frontmatter = this.plugin.app.metadataCache.getFileCache(file)?.frontmatter;
     if (!frontmatter || typeof frontmatter !== "object") {
       return false;
@@ -774,7 +784,7 @@ export class MdStatsManager {
       return "";
     }
 
-    const fileCount = await this.getFileCharCount(activeFile);
+    const fileCount = await this.getStatusBarFileCharCount(activeView, activeFile);
     const selectedTextRaw = activeView.editor?.getSelection() ?? "";
     const selectedCount = selectedTextRaw
       ? this.countMarkdownCharacters(selectedTextRaw)
@@ -793,5 +803,45 @@ export class MdStatsManager {
       return `${selectedCount}字 / ${fileCount}字`;
     }
     return `${fileCount}字`;
+  }
+
+  private async getStatusBarFileCharCount(activeView: MarkdownView, activeFile: TFile): Promise<number> {
+    const editorText = activeView.editor?.getValue();
+    if (typeof editorText === "string") {
+      return this.countMarkdownCharacters(editorText);
+    }
+    const content = await this.plugin.app.vault.read(activeFile);
+    return this.countMarkdownCharacters(content);
+  }
+
+  private isFileInStatsScope(file: TFile): boolean {
+    if (!this.plugin.settings.mdStatsOnlyMappedFolders) {
+      return true;
+    }
+    const roots = this.getMappedStatsRoots();
+    if (roots.length === 0) {
+      return false;
+    }
+    const normalizedPath = this.normalizePath(file.path);
+    return roots.some((root) => normalizedPath === root || normalizedPath.startsWith(`${root}/`));
+  }
+
+  private getMappedStatsRoots(): string[] {
+    const roots = new Set<string>();
+    for (const mapping of this.plugin.settings.folderMappings) {
+      const novel = this.normalizePath(mapping.novelFolder);
+      if (novel.length > 0) {
+        roots.add(novel);
+      }
+      const setting = this.normalizePath(mapping.settingFolder);
+      if (setting.length > 0) {
+        roots.add(setting);
+      }
+    }
+    return Array.from(roots);
+  }
+
+  private normalizePath(path: string): string {
+    return (path ?? "").trim().replace(/^\/+|\/+$/g, "");
   }
 }
