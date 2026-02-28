@@ -661,6 +661,7 @@ export class InspirationView extends ItemView {
       evt.stopPropagation();
       this.openCardMenu(moreBtn, {
         pinned: isPinned,
+        floating: isFloating,
         selectedColor: currentColor,
         onSelectColor: async (hex) => {
           const nextCwData = this.upsertCwDataColor(cwDataBody, hex, file.path);
@@ -757,7 +758,11 @@ export class InspirationView extends ItemView {
             width: Math.round(rect.width),
           };
         }
-        const nextCwData = this.upsertCwDataFloating(cwDataBody, nextFloating, file.path, floatingGeometry);
+        let nextCwData = this.upsertCwDataFloating(cwDataBody, nextFloating, file.path, floatingGeometry);
+        const shouldAutoUnpin = nextFloating && isPinned;
+        if (shouldAutoUnpin) {
+          nextCwData = this.upsertCwDataPinned(nextCwData, false, file.path);
+        }
         const updated = this.composeContent(frontmatterBody, nextCwData, textareaEl.value);
         if (updated === lastSavedContent) return;
         try {
@@ -773,11 +778,16 @@ export class InspirationView extends ItemView {
           await this.modifyCardFile(file, updated);
           cwDataBody = nextCwData;
           isFloating = nextFloating;
+          if (shouldAutoUnpin) {
+            isPinned = false;
+            this.setPinnedBadgeVisible(pinnedBadgeEl, false);
+          }
           lastSavedContent = updated;
           floatBtn.toggleClass("is-active", isFloating);
           floatBtn.setAttribute("aria-label", isFloating ? "收回到列表" : "悬浮便签");
           this.patchCardModel(file.path, {
             cwDataBody: nextCwData,
+            isPinned: shouldAutoUnpin ? false : isPinned,
             isFloating: nextFloating,
             floatingX: nextFloating ? floatingGeometry?.left ?? null : null,
             floatingY: nextFloating ? floatingGeometry?.top ?? null : null,
@@ -1408,6 +1418,7 @@ export class InspirationView extends ItemView {
     anchorEl: HTMLElement,
     handlers: {
       pinned: boolean;
+      floating: boolean;
       selectedColor: string | null;
       onSelectColor: (hex: string) => Promise<void>;
       onTogglePinned: () => Promise<void>;
@@ -1455,9 +1466,15 @@ export class InspirationView extends ItemView {
       cls: "cw-inspiration-menu-item-text",
       text: handlers.pinned ? "取消置顶" : "置顶",
     });
+    if (handlers.floating) {
+      pinEl.disabled = true;
+      pinEl.addClass("is-disabled");
+      pinEl.setAttribute("aria-label", "悬浮便签不支持置顶");
+    }
     pinEl.addEventListener("click", (evt) => {
       evt.preventDefault();
       evt.stopPropagation();
+      if (handlers.floating) return;
       void handlers.onTogglePinned().finally(() => this.closeMenus());
     });
 

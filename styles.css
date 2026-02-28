@@ -89,6 +89,10 @@
   position: fixed;
 }
 
+.cw-inspiration-tag-suggestion-container {
+  z-index: 1110;
+}
+
 .cw-suggestion-row {
   min-height: var(--cw-suggestion-row-height);
   padding: 0 0.7em;
@@ -842,6 +846,7 @@
 .cw-inspiration-floating-panel {
   position: fixed;
   z-index: 1010;
+  background: var(--background-primary);
   max-width: calc(100vw - 24px);
   max-height: min(76vh, 720px);
   overflow: auto;
@@ -859,7 +864,7 @@
 
 .cw-inspiration-color-menu {
   position: fixed;
-  z-index: 1000;
+  z-index: 1100;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 10px;
@@ -991,6 +996,12 @@
 
 .cw-inspiration-menu-item.is-active .cw-inspiration-menu-item-icon {
   color: var(--interactive-accent);
+}
+
+.cw-inspiration-menu-item.is-disabled,
+.cw-inspiration-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .cw-inspiration-item-title {
