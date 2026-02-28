@@ -2,6 +2,7 @@ import { Plugin, TFile, TFolder, MarkdownView, WorkspaceLeaf, setIcon, Notice } 
 import { ChineseWriterSettings, DEFAULT_SETTINGS, ChineseWriterSettingTab } from "./settings";
 import { FileParser } from "./parser";
 import { TreeView, VIEW_TYPE_TREE } from "./tree-view";
+import { InspirationView, VIEW_TYPE_INSPIRATION } from "./inspiration-view";
 import { OrderManager } from "./order-manager";
 import { HighlightManager } from "./highlight-manager";
 import { EditorTypographyManager } from "./editor-typography-manager";
@@ -92,6 +93,10 @@ export default class ChineseWriterPlugin extends Plugin {
       VIEW_TYPE_TREE,
       (leaf) => new TreeView(leaf, this)
     );
+    this.registerView(
+      VIEW_TYPE_INSPIRATION,
+      (leaf) => new InspirationView(leaf, this)
+    );
 
     // 添加打开视图的命令
     this.addCommand({
@@ -99,6 +104,19 @@ export default class ChineseWriterPlugin extends Plugin {
       name: "打开文档树视图",
       callback: () => {
         this.activateView();
+      },
+    });
+    this.addCommand({
+      id: "open-inspiration-view",
+      name: "打开灵感视图",
+      checkCallback: (checking) => {
+        if (!this.settings.enableInspirationView) {
+          return false;
+        }
+        if (!checking) {
+          void this.activateInspirationView();
+        }
+        return true;
       },
     });
 
@@ -166,6 +184,7 @@ export default class ChineseWriterPlugin extends Plugin {
           this.slashSnippetCompleteManager.onVaultPathChanged(file.path);
           this.highlightManager.onVaultPathChanged(file.path);
           this.smartUpdateView();
+          void this.refreshInspirationView();
           this.updateH3CacheForSettingFile(file.path);
 
           // 如果修改的是设定库中的文件，清除关键字缓存并刷新编辑器
@@ -192,6 +211,7 @@ export default class ChineseWriterPlugin extends Plugin {
           this.slashSnippetCompleteManager.onVaultPathChanged(file.path);
           this.highlightManager.onVaultPathChanged(file.path);
           this.syncOrderOnFileCreate(file);
+          void this.refreshInspirationView();
           this.updateH3CacheForSettingFile(file.path);
         }
       })
@@ -205,12 +225,14 @@ export default class ChineseWriterPlugin extends Plugin {
           this.slashSnippetCompleteManager.onVaultPathChanged(file.path);
           this.highlightManager.onVaultPathChanged(file.path);
           this.syncOrderOnFileDelete(file);
+          void this.refreshInspirationView();
           this.updateH3CacheForSettingFile(file.path);
           return;
         }
 
         if (file instanceof TFolder) {
           this.highlightManager.onVaultPathChanged(file.path);
+          void this.refreshInspirationView();
           void this.handleMappedFolderDeleted(file.path);
         }
       })
@@ -225,6 +247,7 @@ export default class ChineseWriterPlugin extends Plugin {
           this.slashSnippetCompleteManager.onVaultPathChanged(file.path, oldPath);
           this.highlightManager.onVaultPathChanged(file.path, oldPath);
           this.syncOrderOnFileRename(file, oldPath);
+          void this.refreshInspirationView();
           this.updateH3CacheForSettingFile(oldPath);
           this.updateH3CacheForSettingFile(file.path);
           return;
@@ -232,6 +255,7 @@ export default class ChineseWriterPlugin extends Plugin {
 
         if (file instanceof TFolder) {
           this.highlightManager.onVaultPathChanged(file.path, oldPath);
+          void this.refreshInspirationView();
           void this.handleMappedFolderRenamed(oldPath, file.path);
         }
       })
@@ -252,6 +276,7 @@ export default class ChineseWriterPlugin extends Plugin {
   onunload() {
     // 清理视图
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_TREE);
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_INSPIRATION);
     this.mdStatsManager.destroy();
   }
 
@@ -278,6 +303,40 @@ export default class ChineseWriterPlugin extends Plugin {
     // 显示视图
     if (leaf) {
       workspace.revealLeaf(leaf);
+    }
+  }
+
+  async activateInspirationView() {
+    const { workspace } = this.app;
+    let leaf = workspace.getLeavesOfType(VIEW_TYPE_INSPIRATION)[0];
+
+    if (!leaf) {
+      const rightLeaf = workspace.getRightLeaf(false);
+      if (rightLeaf) {
+        await rightLeaf.setViewState({
+          type: VIEW_TYPE_INSPIRATION,
+          active: true,
+        });
+        leaf = rightLeaf;
+      }
+    }
+
+    if (leaf) {
+      workspace.revealLeaf(leaf);
+    }
+  }
+
+  closeInspirationView(): void {
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_INSPIRATION);
+  }
+
+  async refreshInspirationView(): Promise<void> {
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_INSPIRATION);
+    for (const leaf of leaves) {
+      const view = leaf.view;
+      if (view instanceof InspirationView) {
+        await view.refresh();
+      }
     }
   }
 

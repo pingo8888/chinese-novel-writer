@@ -121,6 +121,10 @@ export interface ChineseWriterSettings {
   slashH2CandidatePageSize: number;
   /** // 文本片段来源目录路径（递归读取目录下所有 md） */
   slashSnippetFolderPath: string;
+  /** 是否启用灵感视图 */
+  enableInspirationView: boolean;
+  /** 灵感文件目录路径（递归读取目录下所有 md） */
+  inspirationFolderPath: string;
   /** 是否启用错别字与敏感词词典检测/修正 */
   enableTypoDictionary: boolean;
   /** 错别字与敏感词词典目录路径（递归读取目录下所有 md） */
@@ -176,6 +180,8 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
   enableSlashSnippetCandidateBar: false,
   slashH2CandidatePageSize: 8,
   slashSnippetFolderPath: "",
+  enableInspirationView: false,
+  inspirationFolderPath: "",
   enableTypoDictionary: false,
   typoDictionaryFolderPath: "",
   enableCnPunctuationAutoPair: false,
@@ -927,6 +933,49 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
             this.plugin.settings.enableCnPunctuationAutoPair = value;
             await this.plugin.saveSettings();
           })
+      );
+
+    let inspirationPathInput: { setDisabled: (disabled: boolean) => unknown } | null = null;
+    new Setting(otherTabEl)
+      .setName("启用灵感视图")
+      .setDesc("开启后可使用命令“打开灵感视图”")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.enableInspirationView)
+          .onChange(async (value) => {
+            this.plugin.settings.enableInspirationView = value;
+            inspirationPathInput?.setDisabled(!value);
+            await this.plugin.saveSettings();
+            if (!value) {
+              this.plugin.closeInspirationView();
+            }
+          })
+      );
+
+    new Setting(otherTabEl)
+      .setName("设置灵感文件路径")
+      .setDesc("填写 Vault 内目录路径，递归读取该目录及子目录下所有 .md 文件")
+      .addText((text) =>
+      (inspirationPathInput = text,
+        text.inputEl.addEventListener("blur", async () => {
+          const trimmed = this.plugin.settings.inspirationFolderPath.trim();
+          this.plugin.settings.inspirationFolderPath = trimmed;
+          await this.plugin.saveSettings();
+          if (trimmed.length > 0 && !this.isFolderExisting(trimmed)) {
+            new Notice("灵感文件路径无效：请填写 Vault 内目录路径");
+            return;
+          }
+          await this.plugin.refreshInspirationView();
+        }),
+        text
+          .setPlaceholder("灵感")
+          .setValue(this.plugin.settings.inspirationFolderPath)
+          .setDisabled(!this.plugin.settings.enableInspirationView)
+          .onChange((value) => {
+            this.plugin.settings.inspirationFolderPath = value;
+            this.scheduleDelayedSave();
+          }),
+        this.bindFolderPathSuggestionPanel(text.inputEl, folderPathSuggestions))
       );
 
   }

@@ -437,6 +437,317 @@
   font-size: 14px;
 }
 
+.cw-inspiration-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px;
+}
+
+.cw-inspiration-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cw-inspiration-item {
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 6px 6px 6px;
+  cursor: default;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cw-inspiration-item:hover {
+  background: transparent;
+}
+
+.cw-inspiration-item.is-active {
+  border-color: transparent;
+}
+
+.cw-inspiration-item.has-custom-color {
+  border-color: transparent;
+  background: var(--cw-inspiration-card-color-bg, transparent);
+}
+
+.cw-inspiration-item-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: transparent;
+  min-height: 18px;
+}
+
+.cw-inspiration-item-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.cw-inspiration-item-more {
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  appearance: none;
+  outline: none;
+  color: var(--text-muted);
+  height: 18px;
+  min-width: 18px;
+  line-height: 1;
+  padding: 0 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cw-inspiration-item-more:hover {
+  color: var(--text-muted);
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.cw-inspiration-item-more:focus,
+.cw-inspiration-item-more:focus-visible,
+.cw-inspiration-item-more:active {
+  color: var(--text-muted);
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none;
+}
+
+.cw-inspiration-color-menu {
+  position: fixed;
+  z-index: 1000;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  padding: 8px;
+  min-width: 156px;
+  max-width: calc(100vw - 16px);
+}
+
+.cw-inspiration-color-palette {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.cw-inspiration-menu-actions {
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 6px;
+}
+
+.cw-inspiration-menu-actions.no-divider {
+  border-top: none;
+  padding-top: 0;
+}
+
+.cw-inspiration-menu-divider {
+  height: 1px;
+  background: var(--background-modifier-border);
+  margin: 4px 0;
+}
+
+.cw-inspiration-color-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  border: 1px solid var(--background-modifier-border);
+  padding: 0;
+  cursor: pointer;
+}
+
+.cw-inspiration-color-swatch:hover {
+  transform: translateY(-1px);
+}
+
+.cw-inspiration-sort-btn {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-normal);
+  text-align: left;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.cw-inspiration-sort-btn:hover {
+  opacity: 0.85;
+}
+
+.cw-inspiration-sort-btn.is-active {
+  color: var(--interactive-accent);
+}
+
+.cw-inspiration-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  background: transparent !important;
+  color: var(--text-normal);
+  text-align: left;
+  padding: 6px 2px;
+  border-radius: 0;
+  cursor: pointer;
+  margin: 0;
+}
+
+.cw-inspiration-menu-item:hover {
+  background: var(--background-modifier-hover) !important;
+}
+
+.cw-inspiration-menu-item:focus,
+.cw-inspiration-menu-item:focus-visible,
+.cw-inspiration-menu-item:active {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  background: transparent !important;
+}
+
+.cw-inspiration-menu-item-icon {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-left: 0;
+}
+
+.cw-inspiration-menu-item-text {
+  line-height: 1.2;
+  text-align: left;
+}
+
+.cw-inspiration-menu-item.is-danger {
+  color: var(--text-error);
+}
+
+.cw-inspiration-menu-item.is-danger .cw-inspiration-menu-item-icon {
+  color: var(--text-error);
+}
+
+.cw-inspiration-menu-item.is-active {
+  color: var(--interactive-accent);
+}
+
+.cw-inspiration-menu-item.is-active .cw-inspiration-menu-item-icon {
+  color: var(--interactive-accent);
+}
+
+.cw-inspiration-item-title {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.cw-inspiration-item-path {
+  font-size: 12px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.cw-inspiration-item-preview {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  padding: 8px 10px;
+  font-family: var(--font-text);
+  font-size: var(--font-text-size);
+  font-weight: var(--font-normal);
+  line-height: var(--line-height-normal);
+  max-height: 16em;
+  overflow: hidden;
+}
+
+.cw-inspiration-item-preview.cw-inspiration-item-edit-shell {
+  max-height: none;
+  padding: 0px;
+  overflow: visible;
+}
+
+.cw-inspiration-item-editor {
+  width: 100%;
+  min-height: 0;
+  font-family: var(--font-text);
+  font-size: var(--font-text-size);
+  font-weight: var(--font-normal);
+  line-height: var(--line-height-normal);
+  resize: none;
+  overflow: hidden;
+  padding: 0px;
+  border: 0;
+  outline: none;
+  background: var(--cw-inspiration-card-color-bg, var(--background-primary));
+  color: var(--text-normal);
+  cursor: text;
+}
+
+.cw-inspiration-item-editor:hover {
+  background: var(--cw-inspiration-card-color-bg, var(--background-primary)) !important;
+}
+
+.cw-inspiration-item-editor:focus,
+.cw-inspiration-item-editor:focus-visible,
+.cw-inspiration-item-editor:active {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  background: var(--cw-inspiration-card-color-bg, var(--background-primary)) !important;
+}
+
+.cw-inspiration-item.has-custom-color .cw-inspiration-item-editor,
+.cw-inspiration-item.has-custom-color .cw-inspiration-item-editor:hover,
+.cw-inspiration-item.has-custom-color .cw-inspiration-item-editor:focus,
+.cw-inspiration-item.has-custom-color .cw-inspiration-item-editor:focus-visible,
+.cw-inspiration-item.has-custom-color .cw-inspiration-item-editor:active {
+  background: transparent !important;
+}
+
+.cw-inspiration-item-edit-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+}
+
+.cw-inspiration-item-edit-actions button {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.cw-inspiration-item-edit-actions button:hover {
+  background: var(--background-modifier-hover);
+}
+
+.cw-inspiration-item-preview> :first-child {
+  margin-top: 0;
+}
+
+.cw-inspiration-item-preview> :last-child {
+  margin-bottom: 0;
+}
+
 /* 树结构 */
 .chinese-writer-tree {
   list-style: none;
