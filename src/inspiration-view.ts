@@ -1,4 +1,4 @@
-import { ItemView, Notice, TFile, TFolder, WorkspaceLeaf, setIcon } from "obsidian";
+import { ItemView, MarkdownRenderer, Notice, TFile, TFolder, WorkspaceLeaf, setIcon } from "obsidian";
 import type ChineseWriterPlugin from "./main";
 import { ConfirmModal } from "./modals";
 
@@ -20,7 +20,6 @@ interface CardRenderModel extends ParsedCardContent {
 
 export class InspirationView extends ItemView {
   plugin: ChineseWriterPlugin;
-  private static readonly COLLAPSED_MAX_LINES = 3;
   private static readonly CW_DATA_WARNING = "数据由灵感视图管理，请勿删除或手动修改";
   private static readonly CARD_COLORS = [
     "#4A86E9",
@@ -151,8 +150,10 @@ export class InspirationView extends ItemView {
     let frontmatterBody = model.frontmatterBody;
     let cwDataBody = model.cwDataBody;
     let isPinned = model.isPinned;
+    let currentColor = model.color;
 
     const itemEl = listEl.createDiv({ cls: "cw-inspiration-item" });
+    itemEl.style.setProperty("--cw-inspiration-lines", String(this.getCollapsedLines()));
     const barEl = itemEl.createDiv({ cls: "cw-inspiration-item-bar" });
     const timeEl = barEl.createDiv({
       cls: "cw-inspiration-item-time",
@@ -164,9 +165,12 @@ export class InspirationView extends ItemView {
     });
     setIcon(moreBtn, "ellipsis");
 
-    const textareaEl = itemEl.createEl("textarea", { cls: "cw-inspiration-item-editor" });
-    textareaEl.value = model.body;
+    const previewEl = itemEl.createDiv({ cls: "cw-inspiration-item-preview markdown-rendered" });
+    const textareaEl = itemEl.createEl("textarea", { cls: "cw-inspiration-item-editor is-hidden" });
+    let currentBody = model.body;
+    textareaEl.value = currentBody;
     textareaEl.setAttribute("aria-label", `${file.basename} 编辑区`);
+    await this.renderPreview(previewEl, currentBody, file.path);
     this.applyCardColor(itemEl, model.color);
     this.setEditorExpanded(textareaEl, false);
 
@@ -177,6 +181,8 @@ export class InspirationView extends ItemView {
       try {
         await this.app.vault.modify(file, nextComposed);
         lastSavedContent = nextComposed;
+        currentBody = textareaEl.value;
+        await this.renderPreview(previewEl, currentBody, file.path);
         timeEl.setText(this.formatTimestamp(Date.now()));
       } catch (error) {
         console.error("Failed to save inspiration file:", error);
@@ -189,6 +195,7 @@ export class InspirationView extends ItemView {
       evt.stopPropagation();
       this.openCardMenu(moreBtn, {
         pinned: isPinned,
+        selectedColor: currentColor,
         onSelectColor: async (hex) => {
           const nextCwData = this.upsertCwDataColor(cwDataBody, hex);
           const updated = this.composeContent(frontmatterBody, nextCwData, textareaEl.value);
@@ -197,6 +204,7 @@ export class InspirationView extends ItemView {
             await this.app.vault.modify(file, updated);
             cwDataBody = nextCwData;
             lastSavedContent = updated;
+            currentColor = hex.toUpperCase();
             this.applyCardColor(itemEl, hex);
             timeEl.setText(this.formatTimestamp(Date.now()));
           } catch (error) {
@@ -250,6 +258,8 @@ export class InspirationView extends ItemView {
     });
     textareaEl.addEventListener("blur", () => {
       this.setEditorExpanded(textareaEl, false);
+      previewEl.removeClass("is-hidden");
+      textareaEl.addClass("is-hidden");
       void saveContent();
     });
     textareaEl.addEventListener("keydown", (evt) => {
@@ -259,6 +269,24 @@ export class InspirationView extends ItemView {
         void saveContent();
       }
     });
+
+    previewEl.addEventListener("click", () => {
+      previewEl.addClass("is-hidden");
+      textareaEl.removeClass("is-hidden");
+      textareaEl.focus();
+      textareaEl.setSelectionRange(textareaEl.value.length, textareaEl.value.length);
+      this.setEditorExpanded(textareaEl, true);
+    });
+  }
+
+  private async renderPreview(previewEl: HTMLElement, body: string, sourcePath: string): Promise<void> {
+    previewEl.empty();
+    const normalized = body.trim();
+    if (!normalized) {
+      previewEl.createEl("p", { text: "" });
+      return;
+    }
+    await MarkdownRenderer.render(this.app, normalized, previewEl, sourcePath, this);
   }
 
   private setEditorExpanded(textareaEl: HTMLTextAreaElement, expanded: boolean): void {
@@ -276,7 +304,13 @@ export class InspirationView extends ItemView {
     const lineHeight = Number.parseFloat(computed.lineHeight) || fontSize * 1.6;
     const paddingTop = Number.parseFloat(computed.paddingTop) || 0;
     const paddingBottom = Number.parseFloat(computed.paddingBottom) || 0;
-    return lineHeight * InspirationView.COLLAPSED_MAX_LINES + paddingTop + paddingBottom;
+    return lineHeight * this.getCollapsedLines() + paddingTop + paddingBottom;
+  }
+
+  private getCollapsedLines(): number {
+    const raw = this.plugin.settings.inspirationPreviewLines;
+    const normalized = Number.isFinite(raw) ? Math.round(raw) : 3;
+    return Math.min(10, Math.max(1, normalized));
   }
 
   private formatTimestamp(ms: number): string {
@@ -365,6 +399,7 @@ export class InspirationView extends ItemView {
     anchorEl: HTMLElement,
     handlers: {
       pinned: boolean;
+      selectedColor: string | null;
       onSelectColor: (hex: string) => Promise<void>;
       onTogglePinned: () => Promise<void>;
       onDelete: () => Promise<void>;
@@ -389,6 +424,9 @@ export class InspirationView extends ItemView {
         attr: { type: "button", "aria-label": `颜色 ${hex}` },
       });
       swatchEl.style.backgroundColor = this.hexToRgba(hex, 0.25);
+      if ((handlers.selectedColor ?? "").toUpperCase() === hex.toUpperCase()) {
+        swatchEl.addClass("is-selected");
+      }
       swatchEl.addEventListener("click", (evt) => {
         evt.preventDefault();
         evt.stopPropagation();

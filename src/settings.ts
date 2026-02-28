@@ -123,6 +123,8 @@ export interface ChineseWriterSettings {
   slashSnippetFolderPath: string;
   /** 是否启用灵感视图 */
   enableInspirationView: boolean;
+  /** 灵感卡片预览默认显示行数（1-10） */
+  inspirationPreviewLines: number;
   /** 灵感文件目录路径（递归读取目录下所有 md） */
   inspirationFolderPath: string;
   /** 是否启用错别字与敏感词词典检测/修正 */
@@ -181,6 +183,7 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
   slashH2CandidatePageSize: 8,
   slashSnippetFolderPath: "",
   enableInspirationView: false,
+  inspirationPreviewLines: 4,
   inspirationFolderPath: "",
   enableTypoDictionary: false,
   typoDictionaryFolderPath: "",
@@ -936,6 +939,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       );
 
     let inspirationPathInput: { setDisabled: (disabled: boolean) => unknown } | null = null;
+    let inspirationLinesSlider: { setDisabled: (disabled: boolean) => unknown } | null = null;
     new Setting(otherTabEl)
       .setName("启用灵感视图")
       .setDesc("开启后可使用命令“打开灵感视图”")
@@ -945,11 +949,30 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             this.plugin.settings.enableInspirationView = value;
             inspirationPathInput?.setDisabled(!value);
+            inspirationLinesSlider?.setDisabled(!value);
             await this.plugin.saveSettings();
             if (!value) {
               this.plugin.closeInspirationView();
+            } else {
+              await this.plugin.refreshInspirationView();
             }
           })
+      );
+
+    new Setting(otherTabEl)
+      .setName("灵感卡片默认行数")
+      .setDesc("设置卡片预览默认显示行数（编辑时会自动展开）")
+      .addSlider((slider) =>
+      (inspirationLinesSlider = slider, slider
+        .setLimits(1, 10, 1)
+        .setValue(this.plugin.settings.inspirationPreviewLines)
+        .setDynamicTooltip()
+        .setDisabled(!this.plugin.settings.enableInspirationView)
+        .onChange(async (value) => {
+          this.plugin.settings.inspirationPreviewLines = value;
+          await this.plugin.saveSettings();
+          await this.plugin.refreshInspirationView();
+        }))
       );
 
     new Setting(otherTabEl)
