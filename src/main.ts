@@ -283,6 +283,9 @@ export default class ChineseWriterPlugin extends Plugin {
     // 插件加载时自动打开视图
     this.app.workspace.onLayoutReady(() => {
       this.activateView();
+      if (this.settings.enableInspirationView) {
+        void this.activateInspirationView();
+      }
     });
   }
 
@@ -1275,4 +1278,5 @@ export default class ChineseWriterPlugin extends Plugin {
       this.smartUpdateView();
     }, 400);
   }
+
 }

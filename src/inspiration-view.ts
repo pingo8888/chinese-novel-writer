@@ -392,7 +392,7 @@ export class InspirationView extends ItemView {
     const barEl = itemEl.createDiv({ cls: "cw-inspiration-item-bar" });
     const timeEl = barEl.createDiv({
       cls: "cw-inspiration-item-time",
-      text: this.formatTimestamp(file.stat.mtime),
+      text: this.getCardTimeText(file),
     });
     const actionsEl = barEl.createDiv({ cls: "cw-inspiration-item-actions" });
     const pinnedBadgeEl = actionsEl.createDiv({ cls: "cw-inspiration-item-pin-badge is-hidden" });
@@ -489,19 +489,17 @@ export class InspirationView extends ItemView {
       if (!isTagEditorActive && normalizedTags !== tagsEditorEl.value) {
         tagsEditorEl.value = normalizedTags;
       }
-      const nextFrontmatter = this.upsertFrontmatterTags(frontmatterBody, normalizedTags);
       const nextCwData = this.upsertCwDataCardContent(cwDataBody, normalizedTags, currentImages);
-      const nextComposed = this.composeContent(nextFrontmatter, nextCwData, textareaEl.value);
+      const nextComposed = this.composeContent(frontmatterBody, nextCwData, textareaEl.value);
       if (nextComposed === lastSavedContent) return;
       try {
         await this.modifyCardFile(file, nextComposed);
         lastSavedContent = nextComposed;
-        frontmatterBody = nextFrontmatter;
         cwDataBody = nextCwData;
         currentBody = textareaEl.value;
         currentTagsLine = normalizedTags;
         this.patchCardModel(file.path, {
-          frontmatterBody: nextFrontmatter,
+          frontmatterBody,
           cwDataBody: nextCwData,
           body: currentBody,
           tagsLine: currentTagsLine,
@@ -510,7 +508,7 @@ export class InspirationView extends ItemView {
         await this.renderPreview(previewEl, currentBody, file.path);
         await this.renderTagPreview(tagsPreviewEl, currentTagsLine, file.path);
         this.renderImageSection(imagesSectionEl, currentImages, handleAddImage, handleRemoveImage);
-        timeEl.setText(this.formatTimestamp(Date.now()));
+        timeEl.setText(this.getCardTimeText(file, Date.now()));
       } catch (error) {
         console.error("Failed to save inspiration file:", error);
         new Notice("灵感便签保存失败，请重试");
@@ -553,7 +551,7 @@ export class InspirationView extends ItemView {
               color: currentColor,
             });
             this.applyCardColor(itemEl, hex);
-            timeEl.setText(this.formatTimestamp(Date.now()));
+            timeEl.setText(this.getCardTimeText(file, Date.now()));
           } catch (error) {
             console.error("Failed to save inspiration card color:", error);
             new Notice("设置灵感便签颜色失败，请重试");
@@ -719,7 +717,7 @@ export class InspirationView extends ItemView {
     const tokens = this.extractTagTokens(tagsLine);
     if (tokens.length === 0) {
       const hintText = this.plugin.settings.inspirationShowTagHint
-        ? "点击添加标签（示例： #角色/主角 #世界观）"
+        ? "点击添加标签（示例：#角色 #伏笔）"
         : "";
       previewEl.createEl("p", { text: hintText });
       previewEl.addClass("is-empty");
@@ -1147,6 +1145,12 @@ export class InspirationView extends ItemView {
     return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
   }
 
+  private getCardTimeText(file: TFile, mtimeFallbackMs?: number): string {
+    const useCreateTime = this.sortMode === "ctime-asc" || this.sortMode === "ctime-desc";
+    const ms = useCreateTime ? file.stat.ctime : (mtimeFallbackMs ?? file.stat.mtime);
+    return this.formatTimestamp(ms);
+  }
+
   private getSortLabel(mode: SortMode): string {
     switch (mode) {
       case "ctime-asc":
@@ -1395,43 +1399,6 @@ export class InspirationView extends ItemView {
     return this.formatTagLineFromTokens(this.extractTagTokens(value));
   }
 
-  private upsertFrontmatterTags(frontmatterBody: string | null, tagsLine: string): string | null {
-    const tags = this.extractTagTokens(tagsLine).map((token) => token.replace(/^#/, ""));
-    const sourceLines = (frontmatterBody ?? "")
-      .replace(/\r\n?/g, "\n")
-      .split("\n");
-    const keptLines: string[] = [];
-    let i = 0;
-    while (i < sourceLines.length) {
-      const line = sourceLines[i] ?? "";
-      if (!/^tags\s*:/.test(line)) {
-        keptLines.push(line);
-        i += 1;
-        continue;
-      }
-      i += 1;
-      while (i < sourceLines.length) {
-        const nextLine = sourceLines[i] ?? "";
-        if (!/^\s+/.test(nextLine)) break;
-        i += 1;
-      }
-    }
-    while (keptLines.length > 0 && keptLines[keptLines.length - 1]?.trim() === "") {
-      keptLines.pop();
-    }
-    if (tags.length > 0) {
-      if (keptLines.length > 0) {
-        keptLines.push("");
-      }
-      keptLines.push("tags:");
-      for (const tag of tags) {
-        keptLines.push(`  - ${tag}`);
-      }
-    }
-    const normalized = keptLines.join("\n").trim();
-    return normalized.length > 0 ? normalized : null;
-  }
-
   private extractTagTokens(value: unknown): string[] {
     const rawItems: string[] = [];
     if (typeof value === "string") {
@@ -1523,13 +1490,24 @@ export class InspirationView extends ItemView {
   }
 
   private getAvailableTagSuggestions(): string[] {
+    const combinedTags = new Set<string>();
+
     const rawTags = (this.app.metadataCache as unknown as {
       getTags?: () => Record<string, unknown> | null | undefined;
     }).getTags?.();
-    if (!rawTags) return [];
-    return Object.keys(rawTags)
-      .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`))
-      .sort((a, b) => a.localeCompare(b, "zh-Hans-CN"));
+    if (rawTags) {
+      for (const tag of Object.keys(rawTags)) {
+        combinedTags.add(tag.startsWith("#") ? tag : `#${tag}`);
+      }
+    }
+
+    for (const model of this.cardModels) {
+      for (const tag of this.extractTagTokens(model.tagsLine)) {
+        combinedTags.add(tag);
+      }
+    }
+
+    return Array.from(combinedTags).sort((a, b) => a.localeCompare(b, "zh-Hans-CN"));
   }
 
   private bindTagSuggestionEditor(editorEl: HTMLTextAreaElement): void {
