@@ -9,28 +9,15 @@ import {
   TFolder,
   WorkspaceLeaf,
   setIcon,
+  setTooltip,
 } from "obsidian";
 import type ChineseWriterPlugin from "./main";
 import { ConfirmModal } from "./modals";
+import { InspirationCardCodec, type ParsedCardContent } from "./inspiration-card-codec";
 
 export const VIEW_TYPE_INSPIRATION = "chinese-writer-inspiration-view";
 
 type SortMode = "ctime-asc" | "ctime-desc" | "mtime-asc" | "mtime-desc";
-
-interface ParsedCardContent {
-  frontmatterBody: string | null;
-  cwDataBody: string | null;
-  body: string;
-  tagsLine: string;
-  images: string[];
-  color: string | null;
-  isPinned: boolean;
-  isFloating: boolean;
-  floatingX: number | null;
-  floatingY: number | null;
-  floatingWidth: number | null;
-  floatingHeight: number | null;
-}
 
 interface CardRenderModel extends ParsedCardContent {
   file: TFile;
@@ -58,7 +45,8 @@ export class InspirationView extends ItemView {
   private sortMenuEl: HTMLElement | null = null;
   private menuCleanup: Array<() => void> = [];
   private expandedImageCards: Set<string> = new Set();
-  private imageExpansionControls: Map<string, ImageExpansionControl> = new Map();
+  private listImageExpansionControls: Map<string, ImageExpansionControl> = new Map();
+  private floatingImageExpansionControls: Map<string, ImageExpansionControl> = new Map();
   private imageLightboxEl: HTMLElement | null = null;
   private searchQuery = "";
   private cardModels: CardRenderModel[] = [];
@@ -70,6 +58,9 @@ export class InspirationView extends ItemView {
   private floatingPanelCleanup: Array<() => void> = [];
   private floatingStartPosByPath: Map<string, { left: number; top: number; width: number; height: number }> = new Map();
   private pendingEditorFocusPath: string | null = null;
+  private cachedImageFiles: TFile[] | null = null;
+  private imageCacheListenersRegistered = false;
+  private readonly cardCodec = new InspirationCardCodec();
   private static readonly FLOATING_MIN_WIDTH = 280;
   private static readonly FLOATING_MIN_BODY_HEIGHT = 40;
   private static readonly DEFAULT_FLOATING_WIDTH = 280;
@@ -92,6 +83,7 @@ export class InspirationView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
+    this.ensureImageCacheListeners();
     await this.refresh();
   }
 
@@ -99,6 +91,7 @@ export class InspirationView extends ItemView {
     this.closeMenus();
     this.closeImageLightbox();
     this.clearFloatingPanels();
+    this.cachedImageFiles = null;
   }
 
   async refresh(): Promise<void> {
@@ -110,7 +103,8 @@ export class InspirationView extends ItemView {
     this.emptyEl = null;
     this.searchCountEl = null;
     container.empty();
-    this.imageExpansionControls.clear();
+    this.listImageExpansionControls.clear();
+    this.floatingImageExpansionControls.clear();
     this.clearFloatingPanels();
     container.addClass("chinese-writer-view");
 
@@ -290,7 +284,7 @@ export class InspirationView extends ItemView {
   private async renderFilteredCards(animateFilePath?: string): Promise<void> {
     if (!this.listEl || !this.emptyEl) return;
     const passId = ++this.renderPassId;
-    this.imageExpansionControls.clear();
+    this.listImageExpansionControls.clear();
     this.listEl.empty();
     const visibleModels = this.getVisibleModels(this.cardModels);
     const filteredModels = this.filterModelsBySearch(visibleModels, this.searchQuery);
@@ -632,7 +626,7 @@ export class InspirationView extends ItemView {
       attr: { type: "button", "aria-label": isFloating ? "收回到列表" : "悬浮便签" },
     });
     setIcon(floatBtn, "send-horizontal");
-    floatBtn.setAttribute("title", isFloating ? "收回到列表" : "悬浮便签");
+    setTooltip(floatBtn, isFloating ? "收回到列表" : "悬浮便签");
     floatBtn.toggleClass("is-mirrored", !isInFloatingPanel);
     floatBtn.toggleClass("is-active", isFloating);
     const moreBtn = actionsEl.createEl("button", {
@@ -667,13 +661,14 @@ export class InspirationView extends ItemView {
       } else {
         this.expandedImageCards.delete(file.path);
       }
-      const control = this.imageExpansionControls.get(file.path);
+      const control = this.getImageExpansionControl(file.path);
       if (control) {
         control.hasImages = currentImages.length > 0;
       }
     };
     setImagesExpanded(isImagesExpanded);
-    this.imageExpansionControls.set(file.path, {
+    const imageControlMap = isInFloatingPanel ? this.floatingImageExpansionControls : this.listImageExpansionControls;
+    imageControlMap.set(file.path, {
       hasImages: currentImages.length > 0,
       setExpanded: (expanded) => setImagesExpanded(expanded),
     });
@@ -718,37 +713,44 @@ export class InspirationView extends ItemView {
     this.bindTagSuggestionEditor(tagsEditorEl);
 
     let lastSavedContent = this.composeContent(frontmatterBody, cwDataBody, textareaEl.value);
+    let saveRequestId = 0;
+    let saveChain: Promise<void> = Promise.resolve();
     let saveDebounceTimer: number | null = null;
     const saveContent = async () => {
-      const normalizedTags = this.normalizeTagLine(tagsEditorEl.value);
-      const isTagEditorActive = document.activeElement === tagsEditorEl;
-      if (!isTagEditorActive && normalizedTags !== tagsEditorEl.value) {
-        tagsEditorEl.value = normalizedTags;
-      }
-      const nextCwData = this.upsertCwDataCardContent(cwDataBody, normalizedTags, currentImages, file.path);
-      const nextComposed = this.composeContent(frontmatterBody, nextCwData, textareaEl.value);
-      if (nextComposed === lastSavedContent) return;
-      try {
-        await this.modifyCardFile(file, nextComposed);
-        lastSavedContent = nextComposed;
-        cwDataBody = nextCwData;
-        currentBody = textareaEl.value;
-        currentTagsLine = normalizedTags;
-        this.patchCardModel(file.path, {
-          frontmatterBody,
-          cwDataBody: nextCwData,
-          body: currentBody,
-          tagsLine: currentTagsLine,
-          images: [...currentImages],
-        });
-        await this.renderPreview(previewEl, currentBody, file.path);
-        await this.renderTagPreview(tagsPreviewEl, currentTagsLine, file.path);
-        this.renderImageSection(imagesSectionEl, currentImages, handleAddImage, handleRemoveImage);
-        timeEl.setText(this.getCardTimeText(file, Date.now()));
-      } catch (error) {
-        console.error("Failed to save inspiration file:", error);
-        new Notice("灵感便签保存失败，请重试");
-      }
+      const requestId = ++saveRequestId;
+      saveChain = saveChain.then(async () => {
+        if (requestId !== saveRequestId) return;
+        const normalizedTags = this.normalizeTagLine(tagsEditorEl.value);
+        const isTagEditorActive = document.activeElement === tagsEditorEl;
+        if (!isTagEditorActive && normalizedTags !== tagsEditorEl.value) {
+          tagsEditorEl.value = normalizedTags;
+        }
+        const nextCwData = this.upsertCwDataCardContent(cwDataBody, normalizedTags, currentImages, file.path);
+        const nextComposed = this.composeContent(frontmatterBody, nextCwData, textareaEl.value);
+        if (nextComposed === lastSavedContent) return;
+        try {
+          await this.modifyCardFile(file, nextComposed);
+          lastSavedContent = nextComposed;
+          cwDataBody = nextCwData;
+          currentBody = textareaEl.value;
+          currentTagsLine = normalizedTags;
+          this.patchCardModel(file.path, {
+            frontmatterBody,
+            cwDataBody: nextCwData,
+            body: currentBody,
+            tagsLine: currentTagsLine,
+            images: [...currentImages],
+          });
+          await this.renderPreview(previewEl, currentBody, file.path);
+          await this.renderTagPreview(tagsPreviewEl, currentTagsLine, file.path);
+          this.renderImageSection(imagesSectionEl, currentImages, handleAddImage, handleRemoveImage);
+          timeEl.setText(this.getCardTimeText(file, Date.now()));
+        } catch (error) {
+          console.error("Failed to save inspiration file:", error);
+          new Notice("灵感便签保存失败，请重试");
+        }
+      });
+      await saveChain;
     };
     const scheduleAutoSave = () => {
       if (saveDebounceTimer !== null) {
@@ -899,7 +901,7 @@ export class InspirationView extends ItemView {
           floatBtn.toggleClass("is-active", isFloating);
           const floatTip = isFloating ? "收回到列表" : "悬浮便签";
           floatBtn.setAttribute("aria-label", floatTip);
-          floatBtn.setAttribute("title", floatTip);
+          setTooltip(floatBtn, floatTip);
           if (!nextFloating) {
             this.plugin.flashInspirationTabIconIfHidden();
           }
@@ -1008,7 +1010,16 @@ export class InspirationView extends ItemView {
   }
 
   applyImageAutoExpandSetting(enabled: boolean): void {
-    for (const [filePath, control] of this.imageExpansionControls) {
+    for (const [filePath, control] of this.listImageExpansionControls) {
+      const nextExpanded = enabled && control.hasImages;
+      control.setExpanded(nextExpanded);
+      if (nextExpanded) {
+        this.expandedImageCards.add(filePath);
+      } else {
+        this.expandedImageCards.delete(filePath);
+      }
+    }
+    for (const [filePath, control] of this.floatingImageExpansionControls) {
       const nextExpanded = enabled && control.hasImages;
       control.setExpanded(nextExpanded);
       if (nextExpanded) {
@@ -1100,10 +1111,7 @@ export class InspirationView extends ItemView {
   }
 
   private async openImagePickerModal(): Promise<TFile | null> {
-    const imageFiles = this.app.vault
-      .getFiles()
-      .filter((file) => this.isSupportedImageFile(file))
-      .sort((a, b) => a.path.localeCompare(b.path, "zh-Hans-CN"));
+    const imageFiles = this.getCachedImageFiles();
     if (imageFiles.length === 0) {
       new Notice("Vault 中未找到可用图片");
       return null;
@@ -1122,6 +1130,31 @@ export class InspirationView extends ItemView {
   private isSupportedImageFile(file: TFile): boolean {
     const ext = file.extension.toLowerCase();
     return ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "gif" || ext === "webp" || ext === "svg";
+  }
+
+  private getImageExpansionControl(filePath: string): ImageExpansionControl | undefined {
+    return this.floatingImageExpansionControls.get(filePath) ?? this.listImageExpansionControls.get(filePath);
+  }
+
+  private ensureImageCacheListeners(): void {
+    if (this.imageCacheListenersRegistered) return;
+    this.imageCacheListenersRegistered = true;
+    const invalidate = () => {
+      this.cachedImageFiles = null;
+    };
+    this.registerEvent(this.app.vault.on("create", () => invalidate()));
+    this.registerEvent(this.app.vault.on("delete", () => invalidate()));
+    this.registerEvent(this.app.vault.on("rename", () => invalidate()));
+  }
+
+  private getCachedImageFiles(): TFile[] {
+    if (!this.cachedImageFiles) {
+      this.cachedImageFiles = this.app.vault
+        .getFiles()
+        .filter((file) => this.isSupportedImageFile(file))
+        .sort((a, b) => a.path.localeCompare(b.path, "zh-Hans-CN"));
+    }
+    return [...this.cachedImageFiles];
   }
 
   private openImageLightbox(file: TFile): void {
@@ -1728,146 +1761,35 @@ export class InspirationView extends ItemView {
   }
 
   private parseCardContent(content: string): ParsedCardContent {
-    const normalized = content.replace(/\r\n?/g, "\n");
-    const frontmatterInfo = this.getFrontmatterInfo(normalized);
-    const frontmatterBody = frontmatterInfo?.body ?? null;
-    const afterFrontmatter = frontmatterInfo ? normalized.slice(frontmatterInfo.endIndex) : normalized;
-
-    const cwDataInfo = this.getCwDataInfo(afterFrontmatter);
-    const bodyWithTags = cwDataInfo
-      ? `${afterFrontmatter.slice(0, cwDataInfo.startIndex)}${afterFrontmatter.slice(cwDataInfo.endIndex)}`
-      : afterFrontmatter;
-    const cwDataObj = this.parseCwDataObject(cwDataInfo?.body ?? null);
-    const cwTagsLine = this.formatTagLineFromTokens(this.extractTagTokens(cwDataObj?.tags));
-    const images = this.extractImagePaths(cwDataObj?.images);
-    const color = this.normalizeHexColor(cwDataObj?.color);
-    const isPinned = cwDataObj?.ispinned === true;
-    const isFloating = cwDataObj?.isfloating === true;
-    const floatingX = this.normalizeFiniteNumber(cwDataObj?.floatx);
-    const floatingY = this.normalizeFiniteNumber(cwDataObj?.floaty);
-    const floatingWidth = this.normalizeFiniteNumber(cwDataObj?.floatw);
-    const floatingHeight = this.normalizeFiniteNumber(cwDataObj?.floath);
-
-    return {
-      frontmatterBody,
-      cwDataBody: cwDataInfo?.body ?? null,
-      body: bodyWithTags.replace(/^\n+/, ""),
-      tagsLine: cwTagsLine,
-      images,
-      color,
-      isPinned,
-      isFloating,
-      floatingX,
-      floatingY,
-      floatingWidth,
-      floatingHeight,
-    };
+    return this.cardCodec.parseCardContent(content);
   }
 
   private composeContent(frontmatterBody: string | null, cwDataBody: string | null, body: string): string {
-    const chunks: string[] = [];
-    if (frontmatterBody && frontmatterBody.trim().length > 0) {
-      chunks.push(`---\n${frontmatterBody.replace(/\n+$/g, "")}\n---`);
-    }
-    if (cwDataBody && cwDataBody.trim().length > 0) {
-      chunks.push(`<!---cw-data\n${cwDataBody.replace(/\n+$/g, "")}\n--->`);
-    }
-    chunks.push(body.replace(/^\n+/, "").replace(/\n+$/g, ""));
-    return chunks.join("\n\n");
+    return this.cardCodec.composeContent(frontmatterBody, cwDataBody, body);
   }
 
   private normalizeTagLine(value: string): string {
-    return this.formatTagLineFromTokens(this.extractTagTokens(value));
+    return this.cardCodec.normalizeTagLine(value);
   }
 
   private extractTagTokens(value: unknown): string[] {
-    const rawItems: string[] = [];
-    if (typeof value === "string") {
-      rawItems.push(value);
-    } else if (Array.isArray(value)) {
-      for (const item of value) {
-        if (typeof item === "string") {
-          rawItems.push(item);
-        }
-      }
-    }
-
-    const tokens: string[] = [];
-    const seen = new Set<string>();
-
-    for (const raw of rawItems) {
-      const directMatches = raw.match(/#[^\s,#]+/g);
-      if (directMatches && directMatches.length > 0) {
-        for (const match of directMatches) {
-          const core = match.slice(1).trim();
-          if (!core) continue;
-          const normalized = `#${core}`;
-          if (seen.has(normalized)) continue;
-          seen.add(normalized);
-          tokens.push(normalized);
-        }
-        continue;
-      }
-
-      const segments = raw
-        .split(",")
-        .map((item) => item.trim())
-        .filter((item) => item.length > 0);
-      for (const segment of segments) {
-        const core = segment.startsWith("#") ? segment.slice(1).trim() : segment.trim();
-        if (!core || /\s/.test(core)) continue;
-        const normalized = `#${core}`;
-        if (seen.has(normalized)) continue;
-        seen.add(normalized);
-        tokens.push(normalized);
-      }
-    }
-
-    return tokens;
+    return this.cardCodec.extractTagTokens(value);
   }
 
   private formatTagLineFromTokens(tokens: string[]): string {
-    return tokens.length > 0 ? ` ${tokens.join(" ")}` : "";
+    return this.cardCodec.formatTagLineFromTokens(tokens);
   }
 
   private formatTagCsvFromTokens(tokens: string[]): string | null {
-    return tokens.length > 0 ? tokens.join(",") : null;
+    return this.cardCodec.formatTagCsvFromTokens(tokens);
   }
 
   private extractImagePaths(value: unknown): string[] {
-    const rawItems: string[] = [];
-    if (typeof value === "string") {
-      rawItems.push(value);
-    } else if (Array.isArray(value)) {
-      for (const item of value) {
-        if (typeof item === "string") {
-          rawItems.push(item);
-        }
-      }
-    }
-    const paths = rawItems
-      .flatMap((item) => item.split(","))
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0);
-    return this.normalizeImagePaths(paths);
-  }
-
-  private normalizeImagePaths(paths: string[]): string[] {
-    const seen = new Set<string>();
-    const normalized: string[] = [];
-    for (const rawPath of paths) {
-      const path = rawPath.trim();
-      if (!path || seen.has(path)) continue;
-      seen.add(path);
-      normalized.push(path);
-      if (normalized.length >= 8) break;
-    }
-    return normalized;
+    return this.cardCodec.extractImagePaths(value);
   }
 
   private formatImageCsv(paths: string[]): string | null {
-    const normalized = this.normalizeImagePaths(paths);
-    return normalized.length > 0 ? normalized.join(",") : null;
+    return this.cardCodec.formatImageCsv(paths);
   }
 
   private getAvailableTagSuggestions(): string[] {
@@ -2236,45 +2158,15 @@ export class InspirationView extends ItemView {
   }
 
   private parseCwDataObject(cwDataBody: string | null): Record<string, any> | null {
-    const normalized = (cwDataBody ?? "").trim();
-    if (!normalized) return null;
-    const safe = normalized.replace(/("color"\s*:\s*)(#[0-9a-fA-F]{6})/g, '$1"$2"');
-    try {
-      const parsed = JSON.parse(safe);
-      return parsed && typeof parsed === "object" ? parsed : null;
-    } catch {
-      return null;
-    }
+    return this.cardCodec.parseCwDataObject(cwDataBody);
   }
 
   private normalizeHexColor(value: unknown): string | null {
-    if (typeof value !== "string") return null;
-    const trimmed = value.trim();
-    return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed.toUpperCase() : null;
+    return this.cardCodec.normalizeHexColor(value);
   }
 
   private normalizeFiniteNumber(value: unknown): number | null {
-    if (typeof value !== "number" || !Number.isFinite(value)) return null;
-    return value;
-  }
-
-  private getFrontmatterInfo(content: string): { body: string; endIndex: number } | null {
-    if (!content.startsWith("---\n")) return null;
-    const endIndex = content.indexOf("\n---\n", 4);
-    if (endIndex === -1) return null;
-    const body = content.slice(4, endIndex);
-    return { body, endIndex: endIndex + 5 };
-  }
-
-  private getCwDataInfo(content: string): { body: string; startIndex: number; endIndex: number } | null {
-    const regex = /<!---cw-data\s*\n([\s\S]*?)\n--->/m;
-    const match = regex.exec(content);
-    if (!match || match.index < 0) return null;
-    return {
-      body: match[1] ?? "",
-      startIndex: match.index,
-      endIndex: match.index + match[0].length,
-    };
+    return this.cardCodec.normalizeFiniteNumber(value);
   }
 
   private applyCardColor(itemEl: HTMLElement, hex: string | null): void {

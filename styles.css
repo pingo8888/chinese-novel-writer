@@ -871,7 +871,7 @@
 
 .cw-inspiration-floating-panel {
   position: fixed;
-  z-index: 1010;
+  z-index: calc(var(--layer-tooltip, 1100) - 1);
   background: var(--background-primary);
   min-width: 280px;
   max-width: calc(100vw - 24px);

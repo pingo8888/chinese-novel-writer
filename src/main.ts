@@ -35,6 +35,9 @@ export default class ChineseWriterPlugin extends Plugin {
   private settingMenuExpandDirection: "right" | "left" = "right";
   private h3TitleCacheByFolder: Map<string, Set<string>> = new Map();
   private inspirationTabFlashTimer: number | null = null;
+  private inspirationRefreshTimer: number | null = null;
+  private inspirationRefreshInFlight: Promise<void> | null = null;
+  private inspirationRefreshQueued = false;
 
   async onload() {
     this.pluginDir = await this.resolvePluginDir();
@@ -215,7 +218,7 @@ export default class ChineseWriterPlugin extends Plugin {
           this.smartUpdateView();
           if (this.shouldRefreshInspirationForPath(file.path) &&
             !this.consumeSuppressedInspirationRefreshPath(file.path)) {
-            void this.refreshInspirationView();
+            this.scheduleInspirationRefresh();
           }
           this.updateH3CacheForSettingFile(file.path);
 
@@ -245,7 +248,7 @@ export default class ChineseWriterPlugin extends Plugin {
           this.syncOrderOnFileCreate(file);
           if (!this.consumeSuppressedInspirationRefreshPath(file.path) &&
             this.shouldRefreshInspirationForPath(file.path)) {
-            void this.refreshInspirationView();
+            this.scheduleInspirationRefresh();
           }
           this.updateH3CacheForSettingFile(file.path);
         }
@@ -261,7 +264,7 @@ export default class ChineseWriterPlugin extends Plugin {
           this.highlightManager.onVaultPathChanged(file.path);
           this.syncOrderOnFileDelete(file);
           if (this.shouldRefreshInspirationForPath(file.path)) {
-            void this.refreshInspirationView();
+            this.scheduleInspirationRefresh();
           }
           this.updateH3CacheForSettingFile(file.path);
           return;
@@ -270,7 +273,7 @@ export default class ChineseWriterPlugin extends Plugin {
         if (file instanceof TFolder) {
           this.highlightManager.onVaultPathChanged(file.path);
           if (this.shouldRefreshInspirationForPath(file.path)) {
-            void this.refreshInspirationView();
+            this.scheduleInspirationRefresh();
           }
           void this.handleMappedFolderDeleted(file.path);
         }
@@ -287,7 +290,7 @@ export default class ChineseWriterPlugin extends Plugin {
           this.highlightManager.onVaultPathChanged(file.path, oldPath);
           this.syncOrderOnFileRename(file, oldPath);
           if (this.shouldRefreshInspirationForPath(file.path) || this.shouldRefreshInspirationForPath(oldPath)) {
-            void this.refreshInspirationView();
+            this.scheduleInspirationRefresh();
           }
           this.updateH3CacheForSettingFile(oldPath);
           this.updateH3CacheForSettingFile(file.path);
@@ -297,7 +300,7 @@ export default class ChineseWriterPlugin extends Plugin {
         if (file instanceof TFolder) {
           this.highlightManager.onVaultPathChanged(file.path, oldPath);
           if (this.shouldRefreshInspirationForPath(file.path) || this.shouldRefreshInspirationForPath(oldPath)) {
-            void this.refreshInspirationView();
+            this.scheduleInspirationRefresh();
           }
           void this.handleMappedFolderRenamed(oldPath, file.path);
         }
@@ -323,6 +326,10 @@ export default class ChineseWriterPlugin extends Plugin {
     // 清理视图
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_TREE);
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_INSPIRATION);
+    if (this.inspirationRefreshTimer !== null) {
+      window.clearTimeout(this.inspirationRefreshTimer);
+      this.inspirationRefreshTimer = null;
+    }
     this.mdStatsManager.destroy();
   }
 
@@ -376,12 +383,37 @@ export default class ChineseWriterPlugin extends Plugin {
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_INSPIRATION);
   }
 
+  scheduleInspirationRefresh(delayMs = 120): void {
+    if (this.inspirationRefreshTimer !== null) {
+      window.clearTimeout(this.inspirationRefreshTimer);
+    }
+    this.inspirationRefreshTimer = window.setTimeout(() => {
+      this.inspirationRefreshTimer = null;
+      void this.refreshInspirationView();
+    }, delayMs);
+  }
+
   async refreshInspirationView(): Promise<void> {
-    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_INSPIRATION);
-    for (const leaf of leaves) {
-      const view = leaf.view;
-      if (view instanceof InspirationView) {
-        await view.refresh();
+    if (this.inspirationRefreshInFlight) {
+      this.inspirationRefreshQueued = true;
+      return;
+    }
+    this.inspirationRefreshInFlight = (async () => {
+      const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_INSPIRATION);
+      for (const leaf of leaves) {
+        const view = leaf.view;
+        if (view instanceof InspirationView) {
+          await view.refresh();
+        }
+      }
+    })();
+    try {
+      await this.inspirationRefreshInFlight;
+    } finally {
+      this.inspirationRefreshInFlight = null;
+      if (this.inspirationRefreshQueued) {
+        this.inspirationRefreshQueued = false;
+        this.scheduleInspirationRefresh(80);
       }
     }
   }
