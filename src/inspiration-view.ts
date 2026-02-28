@@ -31,9 +31,14 @@ interface CardRenderModel extends ParsedCardContent {
   file: TFile;
 }
 
+interface ImageExpansionControl {
+  hasImages: boolean;
+  setExpanded: (expanded: boolean) => void;
+}
+
 export class InspirationView extends ItemView {
   plugin: ChineseWriterPlugin;
-  private static readonly CW_DATA_WARNING = "数据由灵感视图管理，请勿删除或手动修改";
+  private static readonly CW_DATA_WARNING = "数据由灵感便签管理，请勿删除或手动修改";
   private static readonly CARD_COLORS = [
     "#4A86E9",
     "#7B61FF",
@@ -43,11 +48,12 @@ export class InspirationView extends ItemView {
     "#F05D6C",
     "#9CA3AF",
   ];
-  private sortMode: SortMode = "mtime-desc";
+  private sortMode: SortMode = "ctime-desc";
   private cardMenuEl: HTMLElement | null = null;
   private sortMenuEl: HTMLElement | null = null;
   private menuCleanup: Array<() => void> = [];
   private expandedImageCards: Set<string> = new Set();
+  private imageExpansionControls: Map<string, ImageExpansionControl> = new Map();
   private imageLightboxEl: HTMLElement | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: ChineseWriterPlugin) {
@@ -60,7 +66,7 @@ export class InspirationView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "灵感视图";
+    return "灵感便签";
   }
 
   getIcon(): string {
@@ -80,13 +86,14 @@ export class InspirationView extends ItemView {
     const container = this.containerEl.children[1];
     if (!container) return;
     container.empty();
+    this.imageExpansionControls.clear();
     container.addClass("chinese-writer-view");
 
     const headerEl = container.createDiv({ cls: "chinese-writer-header" });
     const titleEl = headerEl.createDiv({ cls: "chinese-writer-title" });
     const iconEl = titleEl.createSpan({ cls: "chinese-writer-icon" });
     setIcon(iconEl, "lightbulb");
-    titleEl.createSpan({ text: "灵感视图", cls: "chinese-writer-folder-name" });
+    titleEl.createSpan({ text: "灵感便签", cls: "chinese-writer-folder-name" });
 
     const sortBtn = headerEl.createEl("button", { cls: "chinese-writer-toggle-btn" });
     setIcon(sortBtn, this.getSortButtonIcon(this.sortMode));
@@ -103,7 +110,7 @@ export class InspirationView extends ItemView {
     if (!configuredPath) {
       contentEl.createEl("p", {
         cls: "setting-item-description",
-        text: "未设置灵感文件路径，请到 设置 -> 其他功能 -> 其他便捷功能 中填写。",
+        text: "未设置灵感便签路径，请到 设置 -> 其他功能 -> 其他便捷功能 中填写。",
       });
       return;
     }
@@ -112,7 +119,7 @@ export class InspirationView extends ItemView {
     if (!(folder instanceof TFolder)) {
       contentEl.createEl("p", {
         cls: "setting-item-description",
-        text: "灵感文件路径无效，请填写 Vault 内目录路径。",
+        text: "灵感便签路径无效，请填写 Vault 内目录路径。",
       });
       return;
     }
@@ -200,13 +207,29 @@ export class InspirationView extends ItemView {
     let currentBody = model.body;
     let currentTagsLine = model.tagsLine;
     let currentImages = [...model.images];
-    let isImagesExpanded = this.expandedImageCards.has(file.path) || currentImages.length > 0;
-    if (isImagesExpanded) {
-      this.expandedImageCards.add(file.path);
-    }
-    setIcon(mediaToggleBtn, isImagesExpanded ? "chevron-up" : "chevron-down");
-    mediaToggleBtn.setAttribute("aria-label", isImagesExpanded ? "隐藏图片区" : "显示图片区");
-    imagesSectionEl.toggleClass("is-hidden", !isImagesExpanded);
+    let isImagesExpanded = this.expandedImageCards.has(file.path) ||
+      (this.plugin.settings.inspirationAutoExpandImages && currentImages.length > 0);
+    const setImagesExpanded = (expanded: boolean) => {
+      const shouldExpand = expanded && currentImages.length > 0;
+      isImagesExpanded = shouldExpand;
+      imagesSectionEl.toggleClass("is-hidden", !isImagesExpanded);
+      setIcon(mediaToggleBtn, isImagesExpanded ? "chevron-up" : "chevron-down");
+      mediaToggleBtn.setAttribute("aria-label", isImagesExpanded ? "隐藏图片区" : "显示图片区");
+      if (isImagesExpanded) {
+        this.expandedImageCards.add(file.path);
+      } else {
+        this.expandedImageCards.delete(file.path);
+      }
+      const control = this.imageExpansionControls.get(file.path);
+      if (control) {
+        control.hasImages = currentImages.length > 0;
+      }
+    };
+    setImagesExpanded(isImagesExpanded);
+    this.imageExpansionControls.set(file.path, {
+      hasImages: currentImages.length > 0,
+      setExpanded: (expanded) => setImagesExpanded(expanded),
+    });
     textareaEl.value = currentBody;
     tagsEditorEl.value = currentTagsLine;
     textareaEl.setAttribute("aria-label", `${file.basename} 编辑区`);
@@ -226,6 +249,9 @@ export class InspirationView extends ItemView {
       }
       currentImages = [...currentImages, imagePath];
       this.renderImageSection(imagesSectionEl, currentImages, handleAddImage, handleRemoveImage);
+      if (this.plugin.settings.inspirationAutoExpandImages) {
+        setImagesExpanded(true);
+      }
       await saveContent();
     };
     const handleRemoveImage = async (imagePath: string) => {
@@ -233,6 +259,9 @@ export class InspirationView extends ItemView {
       if (nextImages.length === currentImages.length) return;
       currentImages = nextImages;
       this.renderImageSection(imagesSectionEl, currentImages, handleAddImage, handleRemoveImage);
+      if (!currentImages.length) {
+        setImagesExpanded(false);
+      }
       await saveContent();
     };
     await this.renderPreview(previewEl, currentBody, file.path);
@@ -264,7 +293,7 @@ export class InspirationView extends ItemView {
         timeEl.setText(this.formatTimestamp(Date.now()));
       } catch (error) {
         console.error("Failed to save inspiration file:", error);
-        new Notice("灵感卡片保存失败，请重试");
+        new Notice("灵感便签保存失败，请重试");
       }
     };
 
@@ -287,7 +316,7 @@ export class InspirationView extends ItemView {
             timeEl.setText(this.formatTimestamp(Date.now()));
           } catch (error) {
             console.error("Failed to save inspiration card color:", error);
-            new Notice("设置灵感颜色失败，请重试");
+            new Notice("设置灵感便签颜色失败，请重试");
           }
         },
         onTogglePinned: async () => {
@@ -310,8 +339,8 @@ export class InspirationView extends ItemView {
         onDelete: async () => {
           const modal = new ConfirmModal(
             this.app,
-            "删除灵感",
-            "确定要删除该灵感吗？此操作不可恢复。",
+            "删除灵感便签",
+            "确定要删除该灵感便签吗？此操作不可恢复。",
             () => {
               void (async () => {
                 try {
@@ -319,7 +348,7 @@ export class InspirationView extends ItemView {
                   itemEl.remove();
                 } catch (error) {
                   console.error("Failed to delete inspiration file:", error);
-                  new Notice("删除灵感失败，请重试");
+                  new Notice("删除灵感便签失败，请重试");
                 }
               })();
             }
@@ -392,16 +421,20 @@ export class InspirationView extends ItemView {
     mediaToggleBtn.addEventListener("click", (evt) => {
       evt.preventDefault();
       evt.stopPropagation();
-      isImagesExpanded = !isImagesExpanded;
-      imagesSectionEl.toggleClass("is-hidden", !isImagesExpanded);
-      if (isImagesExpanded) {
-        this.expandedImageCards.add(file.path);
-      } else {
-        this.expandedImageCards.delete(file.path);
-      }
-      setIcon(mediaToggleBtn, isImagesExpanded ? "chevron-up" : "chevron-down");
-      mediaToggleBtn.setAttribute("aria-label", isImagesExpanded ? "隐藏图片区" : "显示图片区");
+      setImagesExpanded(!isImagesExpanded);
     });
+  }
+
+  applyImageAutoExpandSetting(enabled: boolean): void {
+    for (const [filePath, control] of this.imageExpansionControls) {
+      const nextExpanded = enabled && control.hasImages;
+      control.setExpanded(nextExpanded);
+      if (nextExpanded) {
+        this.expandedImageCards.add(filePath);
+      } else {
+        this.expandedImageCards.delete(filePath);
+      }
+    }
   }
 
   private async renderPreview(previewEl: HTMLElement, body: string, sourcePath: string): Promise<void> {
@@ -981,7 +1014,7 @@ export class InspirationView extends ItemView {
     setIcon(deleteIconEl, "trash-2");
     deleteEl.createSpan({
       cls: "cw-inspiration-menu-item-text",
-      text: "删除灵感",
+      text: "删除灵感便签",
     });
     deleteEl.addEventListener("click", (evt) => {
       evt.preventDefault();

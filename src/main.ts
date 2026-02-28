@@ -108,15 +108,13 @@ export default class ChineseWriterPlugin extends Plugin {
     });
     this.addCommand({
       id: "open-inspiration-view",
-      name: "打开灵感视图",
-      checkCallback: (checking) => {
+      name: "打开灵感便签",
+      callback: async () => {
         if (!this.settings.enableInspirationView) {
-          return false;
+          this.settings.enableInspirationView = true;
+          await this.saveSettings();
         }
-        if (!checking) {
-          void this.activateInspirationView();
-        }
-        return true;
+        await this.activateInspirationView();
       },
     });
 
@@ -308,22 +306,22 @@ export default class ChineseWriterPlugin extends Plugin {
 
   async activateInspirationView() {
     const { workspace } = this.app;
-    let leaf = workspace.getLeavesOfType(VIEW_TYPE_INSPIRATION)[0];
+    const rightLeaf = workspace.getRightLeaf(false);
+    if (!rightLeaf) return;
 
-    if (!leaf) {
-      const rightLeaf = workspace.getRightLeaf(false);
-      if (rightLeaf) {
-        await rightLeaf.setViewState({
-          type: VIEW_TYPE_INSPIRATION,
-          active: true,
-        });
-        leaf = rightLeaf;
+    // Keep inspiration view pinned to the right sidebar as a single leaf.
+    const inspirationLeaves = workspace.getLeavesOfType(VIEW_TYPE_INSPIRATION);
+    for (const leaf of inspirationLeaves) {
+      if (leaf !== rightLeaf) {
+        leaf.detach();
       }
     }
 
-    if (leaf) {
-      workspace.revealLeaf(leaf);
-    }
+    await rightLeaf.setViewState({
+      type: VIEW_TYPE_INSPIRATION,
+      active: true,
+    });
+    workspace.revealLeaf(rightLeaf);
   }
 
   closeInspirationView(): void {
@@ -336,6 +334,16 @@ export default class ChineseWriterPlugin extends Plugin {
       const view = leaf.view;
       if (view instanceof InspirationView) {
         await view.refresh();
+      }
+    }
+  }
+
+  applyInspirationImageAutoExpandSetting(enabled: boolean): void {
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_INSPIRATION);
+    for (const leaf of leaves) {
+      const view = leaf.view;
+      if (view instanceof InspirationView) {
+        view.applyImageAutoExpandSetting(enabled);
       }
     }
   }

@@ -121,12 +121,14 @@ export interface ChineseWriterSettings {
   slashH2CandidatePageSize: number;
   /** // 文本片段来源目录路径（递归读取目录下所有 md） */
   slashSnippetFolderPath: string;
-  /** 是否启用灵感视图 */
+  /** 是否启用灵感便签 */
   enableInspirationView: boolean;
-  /** 灵感卡片预览默认显示行数（1-10） */
+  /** 灵感便签预览默认显示行数（1-10） */
   inspirationPreviewLines: number;
-  /** 灵感文件目录路径（递归读取目录下所有 md） */
+  /** 灵感便签目录路径（递归读取目录下所有 md） */
   inspirationFolderPath: string;
+  /** 灵感便签有图片时是否默认展开图片区 */
+  inspirationAutoExpandImages: boolean;
   /** 是否启用错别字与敏感词词典检测/修正 */
   enableTypoDictionary: boolean;
   /** 错别字与敏感词词典目录路径（递归读取目录下所有 md） */
@@ -185,6 +187,7 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
   enableInspirationView: false,
   inspirationPreviewLines: 4,
   inspirationFolderPath: "",
+  inspirationAutoExpandImages: true,
   enableTypoDictionary: false,
   typoDictionaryFolderPath: "",
   enableCnPunctuationAutoPair: false,
@@ -940,9 +943,10 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
 
     let inspirationPathInput: { setDisabled: (disabled: boolean) => unknown } | null = null;
     let inspirationLinesSlider: { setDisabled: (disabled: boolean) => unknown } | null = null;
+    let inspirationAutoExpandToggle: { setDisabled: (disabled: boolean) => unknown } | null = null;
     new Setting(otherTabEl)
-      .setName("启用灵感视图")
-      .setDesc("开启后可使用命令“打开灵感视图”")
+      .setName("启用灵感便签")
+      .setDesc("开启后可使用命令“打开灵感便签”")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.enableInspirationView)
@@ -950,18 +954,19 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
             this.plugin.settings.enableInspirationView = value;
             inspirationPathInput?.setDisabled(!value);
             inspirationLinesSlider?.setDisabled(!value);
+            inspirationAutoExpandToggle?.setDisabled(!value);
             await this.plugin.saveSettings();
             if (!value) {
               this.plugin.closeInspirationView();
             } else {
-              await this.plugin.refreshInspirationView();
+              await this.plugin.activateInspirationView();
             }
           })
       );
 
     new Setting(otherTabEl)
-      .setName("灵感卡片默认行数")
-      .setDesc("设置卡片预览默认显示行数（编辑时会自动展开）")
+      .setName("灵感便签默认行数")
+      .setDesc("设置便签预览默认显示行数（编辑时会自动展开）")
       .addSlider((slider) =>
       (inspirationLinesSlider = slider, slider
         .setLimits(1, 10, 1)
@@ -976,7 +981,21 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       );
 
     new Setting(otherTabEl)
-      .setName("设置灵感文件路径")
+      .setName("图片默认展开")
+      .setDesc("开启后，灵感便签有图片时默认展开图片区")
+      .addToggle((toggle) =>
+      (inspirationAutoExpandToggle = toggle, toggle
+        .setValue(this.plugin.settings.inspirationAutoExpandImages)
+        .setDisabled(!this.plugin.settings.enableInspirationView)
+        .onChange(async (value) => {
+          this.plugin.settings.inspirationAutoExpandImages = value;
+          await this.plugin.saveSettings();
+          this.plugin.applyInspirationImageAutoExpandSetting(value);
+        }))
+      );
+
+    new Setting(otherTabEl)
+      .setName("设置灵感便签路径")
       .setDesc("填写 Vault 内目录路径，递归读取该目录及子目录下所有 .md 文件")
       .addText((text) =>
       (inspirationPathInput = text,
@@ -985,7 +1004,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           this.plugin.settings.inspirationFolderPath = trimmed;
           await this.plugin.saveSettings();
           if (trimmed.length > 0 && !this.isFolderExisting(trimmed)) {
-            new Notice("灵感文件路径无效：请填写 Vault 内目录路径");
+            new Notice("灵感便签路径无效：请填写 Vault 内目录路径");
             return;
           }
           await this.plugin.refreshInspirationView();
