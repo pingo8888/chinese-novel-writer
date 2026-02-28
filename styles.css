@@ -40,6 +40,10 @@
   width: 90%;
 }
 
+.cw-modal-container {
+  z-index: 1300;
+}
+
 .cw-modal-content {
   padding: 1em;
 }
@@ -841,6 +845,28 @@
 .cw-inspiration-item-float.is-mirrored svg {
   transform: scaleX(-1);
   transform-origin: center;
+}
+
+.workspace-tab-header .workspace-tab-header-inner-icon.cw-inspiration-tab-flash,
+.workspace-tab-header .workspace-tab-header-icon.cw-inspiration-tab-flash {
+  color: var(--interactive-accent) !important;
+  animation: cw-inspiration-tab-flash 300ms ease-in-out 6;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--interactive-accent) 70%, transparent));
+}
+
+@keyframes cw-inspiration-tab-flash {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(1.12);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .cw-inspiration-floating-panel {

@@ -69,8 +69,10 @@ export class InspirationView extends ItemView {
   private floatingPanelEls: HTMLElement[] = [];
   private floatingPanelCleanup: Array<() => void> = [];
   private floatingStartPosByPath: Map<string, { left: number; top: number; width: number; height: number }> = new Map();
+  private pendingEditorFocusPath: string | null = null;
   private static readonly FLOATING_MIN_WIDTH = 280;
-  private static readonly FLOATING_MIN_BODY_HEIGHT = 120;
+  private static readonly FLOATING_MIN_BODY_HEIGHT = 40;
+  private static readonly DEFAULT_FLOATING_WIDTH = 280;
 
   constructor(leaf: WorkspaceLeaf, plugin: ChineseWriterPlugin) {
     super(leaf);
@@ -448,6 +450,10 @@ export class InspirationView extends ItemView {
         dragging = false;
         resizing = false;
       };
+      const onWindowResize = () => {
+        const rect = panelEl.getBoundingClientRect();
+        clampWithinViewport(rect.left, rect.top);
+      };
       const onPointerDown = (evt: PointerEvent) => {
         const target = evt.target as HTMLElement | null;
         if (!target) return;
@@ -475,16 +481,49 @@ export class InspirationView extends ItemView {
       resizeHandle.addEventListener("pointerdown", onResizePointerDown);
       hostWindow.addEventListener("pointermove", onPointerMove);
       hostWindow.addEventListener("pointerup", onPointerUp);
+      hostWindow.addEventListener("resize", onWindowResize);
       this.floatingPanelCleanup.push(() => {
         dragHandle.removeEventListener("pointerdown", onPointerDown);
         resizeHandle.removeEventListener("pointerdown", onResizePointerDown);
         hostWindow.removeEventListener("pointermove", onPointerMove);
         hostWindow.removeEventListener("pointerup", onPointerUp);
+        hostWindow.removeEventListener("resize", onWindowResize);
       });
     }
   }
 
-  private async createInspirationCard(): Promise<void> {
+  async createCenteredFloatingCard(focusEditor = true): Promise<void> {
+    const width = InspirationView.DEFAULT_FLOATING_WIDTH;
+    const bodyHeight = this.getDefaultFloatingBodyHeight();
+    const floatingGeometry = this.buildCenteredFloatingGeometry(width, bodyHeight);
+    await this.createInspirationCard({ floatingGeometry, focusEditor });
+  }
+
+  private buildCenteredFloatingGeometry(
+    width: number,
+    bodyHeight: number
+  ): { left: number; top: number; width: number; height: number } {
+    const margin = 8;
+    const normalizedWidth = Math.max(InspirationView.FLOATING_MIN_WIDTH, Math.round(width));
+    const normalizedBodyHeight = Math.max(InspirationView.FLOATING_MIN_BODY_HEIGHT, Math.round(bodyHeight));
+    // Estimate full panel height from body area + toolbar/tags/images controls.
+    const estimatedPanelHeight = normalizedBodyHeight + 140;
+    const centerLeft = Math.round((window.innerWidth - normalizedWidth) / 2);
+    const centerTop = Math.round((window.innerHeight - estimatedPanelHeight) / 2);
+    const maxLeft = Math.max(margin, window.innerWidth - normalizedWidth - margin);
+    const maxTop = Math.max(margin, window.innerHeight - estimatedPanelHeight - margin);
+    return {
+      left: Math.min(Math.max(margin, centerLeft), maxLeft),
+      top: Math.min(Math.max(margin, centerTop), maxTop),
+      width: normalizedWidth,
+      height: normalizedBodyHeight,
+    };
+  }
+
+  private async createInspirationCard(options?: {
+    floatingGeometry?: { left: number; top: number; width: number; height: number } | null;
+    focusEditor?: boolean;
+  }): Promise<void> {
     const configuredPath = this.plugin.settings.inspirationFolderPath.trim();
     if (!configuredPath) {
       new Notice("未设置灵感便签路径，请先在设置中填写。");
@@ -497,17 +536,34 @@ export class InspirationView extends ItemView {
     }
     const filePath = this.buildUniqueInspirationFilePath(configuredPath, Date.now());
     this.plugin.suppressNextInspirationRefreshForPath(filePath);
-    const cwDataBody = JSON.stringify({
+    const floatingGeometry = options?.floatingGeometry ?? null;
+    const cwDataObj: Record<string, unknown> = {
       warning: InspirationView.CW_DATA_WARNING,
       ispinned: false,
       color: this.pickRandomCardColor(),
-    }, null, 2);
+    };
+    if (floatingGeometry) {
+      cwDataObj.isfloating = true;
+      cwDataObj.floatx = floatingGeometry.left;
+      cwDataObj.floaty = floatingGeometry.top;
+      cwDataObj.floatw = floatingGeometry.width;
+      cwDataObj.floath = floatingGeometry.height;
+    }
+    const cwDataBody = JSON.stringify(cwDataObj, null, 2);
     const content = this.composeContent(null, cwDataBody, "");
     try {
       const createdFile = await this.app.vault.create(filePath, content);
       const createdModel = { file: createdFile, ...this.parseCardContent(content) } as CardRenderModel;
       this.cardModels.push(createdModel);
-      await this.insertCreatedCard(createdModel);
+      if (options?.focusEditor) {
+        this.pendingEditorFocusPath = createdFile.path;
+      }
+      if (floatingGeometry) {
+        this.clearFloatingPanels();
+        await this.renderFloatingCards(this.getFloatingModels(this.cardModels));
+      } else {
+        await this.insertCreatedCard(createdModel);
+      }
     } catch (error) {
       console.error("Failed to create inspiration card:", error);
       new Notice("新建灵感便签失败，请重试");
@@ -576,6 +632,7 @@ export class InspirationView extends ItemView {
       attr: { type: "button", "aria-label": isFloating ? "收回到列表" : "悬浮便签" },
     });
     setIcon(floatBtn, "send-horizontal");
+    floatBtn.setAttribute("title", isFloating ? "收回到列表" : "悬浮便签");
     floatBtn.toggleClass("is-mirrored", !isInFloatingPanel);
     floatBtn.toggleClass("is-active", isFloating);
     const moreBtn = actionsEl.createEl("button", {
@@ -840,7 +897,12 @@ export class InspirationView extends ItemView {
           }
           lastSavedContent = updated;
           floatBtn.toggleClass("is-active", isFloating);
-          floatBtn.setAttribute("aria-label", isFloating ? "收回到列表" : "悬浮便签");
+          const floatTip = isFloating ? "收回到列表" : "悬浮便签";
+          floatBtn.setAttribute("aria-label", floatTip);
+          floatBtn.setAttribute("title", floatTip);
+          if (!nextFloating) {
+            this.plugin.flashInspirationTabIconIfHidden();
+          }
           this.patchCardModel(file.path, {
             cwDataBody: nextCwData,
             isPinned: shouldAutoUnpin ? false : isPinned,
@@ -933,6 +995,15 @@ export class InspirationView extends ItemView {
       evt.stopPropagation();
       setImagesExpanded(!isImagesExpanded);
     });
+    if (this.pendingEditorFocusPath === file.path) {
+      this.pendingEditorFocusPath = null;
+      previewEl.addClass("is-hidden");
+      textareaEl.removeClass("is-hidden");
+      textareaEl.focus();
+      const caret = textareaEl.value.length;
+      textareaEl.setSelectionRange(caret, caret);
+      this.setEditorExpanded(textareaEl, true);
+    }
     return itemEl;
   }
 
@@ -1171,6 +1242,20 @@ export class InspirationView extends ItemView {
     const panelEl = itemEl.closest<HTMLElement>(".cw-inspiration-floating-panel");
     if (!panelEl) return null;
     return this.getFloatingBodyHeight(itemEl);
+  }
+
+  private getDefaultFloatingBodyHeight(): number {
+    const host = this.containerEl?.children?.[1] ?? document.body;
+    const probe = document.createElement("textarea");
+    probe.className = "cw-inspiration-item-editor";
+    probe.style.position = "fixed";
+    probe.style.left = "-9999px";
+    probe.style.top = "-9999px";
+    probe.style.visibility = "hidden";
+    host.appendChild(probe);
+    const collapsed = this.getCollapsedMaxHeight(probe);
+    probe.remove();
+    return Math.max(InspirationView.FLOATING_MIN_BODY_HEIGHT, Math.round(collapsed));
   }
 
   private setPinnedBadgeVisible(badgeEl: HTMLElement, visible: boolean): void {

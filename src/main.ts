@@ -34,6 +34,7 @@ export default class ChineseWriterPlugin extends Plugin {
   private settingMenuCloseTimer: number | null = null;
   private settingMenuExpandDirection: "right" | "left" = "right";
   private h3TitleCacheByFolder: Map<string, Set<string>> = new Map();
+  private inspirationTabFlashTimer: number | null = null;
 
   async onload() {
     this.pluginDir = await this.resolvePluginDir();
@@ -116,6 +117,35 @@ export default class ChineseWriterPlugin extends Plugin {
           await this.saveSettings();
         }
         await this.activateInspirationView();
+      },
+    });
+    this.addCommand({
+      id: "create-centered-floating-inspiration-card",
+      name: "新增灵感便签",
+      hotkeys: [
+        {
+          modifiers: ["Alt"],
+          key: "S",
+        },
+      ],
+      callback: async () => {
+        if (!this.settings.enableInspirationView) {
+          this.settings.enableInspirationView = true;
+          await this.saveSettings();
+        }
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_INSPIRATION);
+        for (const leaf of leaves) {
+          const view = leaf.view;
+          if (!(view instanceof InspirationView)) continue;
+          const tabHeaderEl = (leaf as unknown as { tabHeaderEl?: HTMLElement }).tabHeaderEl;
+          const isActive = tabHeaderEl?.classList.contains("is-active") || tabHeaderEl?.classList.contains("mod-active");
+          await view.createCenteredFloatingCard(true);
+          if (!isActive) {
+            this.flashInspirationTabIconIfHidden();
+          }
+          return;
+        }
+        await this.createFloatingInspirationCardWithoutReveal();
       },
     });
 
@@ -354,6 +384,124 @@ export default class ChineseWriterPlugin extends Plugin {
         await view.refresh();
       }
     }
+  }
+
+  flashInspirationTabIconIfHidden(): void {
+    const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_INSPIRATION)[0];
+    if (!leaf) return;
+    const tabHeaderEl = (leaf as unknown as { tabHeaderEl?: HTMLElement }).tabHeaderEl;
+    if (!tabHeaderEl) return;
+    if (tabHeaderEl.classList.contains("is-active")) return;
+    const iconEl = tabHeaderEl.querySelector<HTMLElement>(
+      ".workspace-tab-header-inner-icon, .workspace-tab-header-icon"
+    );
+    if (!iconEl) return;
+    iconEl.addClass("cw-inspiration-tab-flash");
+    if (this.inspirationTabFlashTimer !== null) {
+      window.clearTimeout(this.inspirationTabFlashTimer);
+      this.inspirationTabFlashTimer = null;
+    }
+    this.inspirationTabFlashTimer = window.setTimeout(() => {
+      iconEl.removeClass("cw-inspiration-tab-flash");
+      this.inspirationTabFlashTimer = null;
+    }, 1800);
+  }
+
+  private async createFloatingInspirationCardWithoutReveal(): Promise<void> {
+    const configuredPath = this.settings.inspirationFolderPath.trim();
+    if (!configuredPath) {
+      new Notice("未设置灵感便签路径，请先在设置中填写。");
+      return;
+    }
+    const folder = this.app.vault.getAbstractFileByPath(configuredPath);
+    if (!(folder instanceof TFolder)) {
+      new Notice("灵感便签路径无效，请填写 Vault 内目录路径。");
+      return;
+    }
+
+    const width = 280;
+    const bodyHeight = this.getDefaultInspirationBodyHeight();
+    const geometry = this.getCenteredFloatingGeometry(width, bodyHeight);
+    const cwDataObj: Record<string, unknown> = {
+      warning: "数据由灵感便签管理，请勿删除或手动修改",
+      ispinned: false,
+      color: this.pickInspirationCardColor(),
+      isfloating: true,
+      floatx: geometry.left,
+      floaty: geometry.top,
+      floatw: geometry.width,
+      floath: geometry.height,
+    };
+    const cwDataBody = JSON.stringify(cwDataObj, null, 2);
+    const content = `<!---cw-data\n${cwDataBody}\n--->\n\n`;
+    const filePath = this.buildUniqueInspirationFilePath(configuredPath, Date.now());
+    await this.app.vault.create(filePath, content);
+    this.flashInspirationTabIconIfHidden();
+  }
+
+  private getDefaultInspirationBodyHeight(): number {
+    const probe = document.createElement("textarea");
+    probe.className = "cw-inspiration-item-editor";
+    probe.style.position = "fixed";
+    probe.style.left = "-9999px";
+    probe.style.top = "-9999px";
+    probe.style.visibility = "hidden";
+    document.body.appendChild(probe);
+    const computed = window.getComputedStyle(probe);
+    const fontSize = Number.parseFloat(computed.fontSize) || 16;
+    const lineHeight = Number.parseFloat(computed.lineHeight) || fontSize * 1.6;
+    const paddingTop = Number.parseFloat(computed.paddingTop) || 0;
+    const paddingBottom = Number.parseFloat(computed.paddingBottom) || 0;
+    probe.remove();
+    const linesRaw = this.settings.inspirationPreviewLines;
+    const lines = Math.min(10, Math.max(1, Number.isFinite(linesRaw) ? Math.round(linesRaw) : 3));
+    return Math.max(40, Math.round(lineHeight * lines + paddingTop + paddingBottom));
+  }
+
+  private getCenteredFloatingGeometry(width: number, bodyHeight: number): {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } {
+    const margin = 8;
+    const normalizedWidth = Math.max(280, Math.round(width));
+    const normalizedBodyHeight = Math.max(40, Math.round(bodyHeight));
+    const estimatedPanelHeight = normalizedBodyHeight + 140;
+    const centerLeft = Math.round((window.innerWidth - normalizedWidth) / 2);
+    const centerTop = Math.round((window.innerHeight - estimatedPanelHeight) / 2);
+    const maxLeft = Math.max(margin, window.innerWidth - normalizedWidth - margin);
+    const maxTop = Math.max(margin, window.innerHeight - estimatedPanelHeight - margin);
+    return {
+      left: Math.min(Math.max(margin, centerLeft), maxLeft),
+      top: Math.min(Math.max(margin, centerTop), maxTop),
+      width: normalizedWidth,
+      height: normalizedBodyHeight,
+    };
+  }
+
+  private buildUniqueInspirationFilePath(folderPath: string, timestamp: number): string {
+    const date = new Date(timestamp);
+    const year = String(date.getFullYear());
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hour = String(date.getHours()).padStart(2, "0");
+    const minute = String(date.getMinutes()).padStart(2, "0");
+    const shortId = Math.random().toString(36).slice(2, 6).padEnd(4, "0").toUpperCase();
+    const baseName = `灵感-${year}${month}${day}-${hour}${minute}-${shortId}`;
+    let candidate = `${folderPath}/${baseName}.md`;
+    let idx = 2;
+    while (this.app.vault.getAbstractFileByPath(candidate)) {
+      candidate = `${folderPath}/${baseName}-${idx}.md`;
+      idx += 1;
+    }
+    return candidate;
+  }
+
+  private pickInspirationCardColor(): string {
+    const colors = ["#4A86E9", "#7B61FF", "#47B881", "#F6C445", "#F59E0B", "#F05D6C", "#9CA3AF"];
+    const index = Math.floor(Math.random() * colors.length);
+    return colors[index] ?? colors[0] ?? "#4A86E9";
   }
 
   suppressNextInspirationRefreshForPath(path: string): void {

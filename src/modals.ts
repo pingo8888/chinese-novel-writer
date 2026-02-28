@@ -38,6 +38,10 @@ export class TextInputModal extends Modal {
     const modalEl = contentEl.closest(".modal") as HTMLElement;
     if (modalEl) {
       modalEl.classList.add("cw-modal");
+      const containerEl = modalEl.parentElement;
+      if (containerEl) {
+        containerEl.classList.add("cw-modal-container");
+      }
     }
     contentEl.classList.add("cw-modal-content");
 
@@ -263,6 +267,10 @@ export class TextInputModal extends Modal {
     const modalEl = contentEl.closest(".modal") as HTMLElement;
     if (modalEl) {
       modalEl.classList.remove("cw-modal");
+      const containerEl = modalEl.parentElement;
+      if (containerEl) {
+        containerEl.classList.remove("cw-modal-container");
+      }
     }
     if (this.viewportListener) {
       window.removeEventListener("resize", this.viewportListener);
@@ -306,6 +314,10 @@ export class ConfirmModal extends Modal {
     const modalEl = contentEl.closest(".modal") as HTMLElement;
     if (modalEl) {
       modalEl.classList.add("cw-modal");
+      const containerEl = modalEl.parentElement;
+      if (containerEl) {
+        containerEl.classList.add("cw-modal-container");
+      }
     }
     contentEl.classList.add("cw-modal-content");
 
@@ -334,6 +346,10 @@ export class ConfirmModal extends Modal {
     const modalEl = contentEl.closest(".modal") as HTMLElement;
     if (modalEl) {
       modalEl.classList.remove("cw-modal");
+      const containerEl = modalEl.parentElement;
+      if (containerEl) {
+        containerEl.classList.remove("cw-modal-container");
+      }
     }
     contentEl.empty();
   }
