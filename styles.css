@@ -687,7 +687,7 @@
   width: 100%;
   min-height: 0;
   font-family: var(--font-text);
-  font-size: var(--font-text-size);
+  font-size: calc(var(--font-text-size) - 2px);
   font-weight: var(--font-normal);
   line-height: var(--line-height-normal);
   resize: none;

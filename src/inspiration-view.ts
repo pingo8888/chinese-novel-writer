@@ -388,7 +388,7 @@ export class InspirationView extends ItemView {
         cls: "cw-inspiration-color-swatch",
         attr: { type: "button", "aria-label": `颜色 ${hex}` },
       });
-      swatchEl.style.backgroundColor = hex;
+      swatchEl.style.backgroundColor = this.hexToRgba(hex, 0.25);
       swatchEl.addEventListener("click", (evt) => {
         evt.preventDefault();
         evt.stopPropagation();
