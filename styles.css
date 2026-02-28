@@ -634,6 +634,12 @@
   min-height: 18px;
 }
 
+.cw-inspiration-item-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .cw-inspiration-item-actions {
   display: inline-flex;
   align-items: center;
@@ -793,6 +799,7 @@
   font-size: 11px;
   color: var(--text-muted);
   user-select: none;
+  margin-left: 2px;
 }
 
 .cw-inspiration-item-more {
@@ -825,6 +832,29 @@
   border: none !important;
   box-shadow: none !important;
   outline: none;
+}
+
+.cw-inspiration-item-float.is-mirrored svg {
+  transform: scaleX(-1);
+  transform-origin: center;
+}
+
+.cw-inspiration-floating-panel {
+  position: fixed;
+  z-index: 1010;
+  max-width: calc(100vw - 24px);
+  max-height: min(76vh, 720px);
+  overflow: auto;
+  border-radius: 10px;
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.22);
+}
+
+.cw-inspiration-floating-panel .cw-inspiration-item {
+  margin: 0;
+}
+
+.cw-inspiration-floating-panel .cw-inspiration-item-bar {
+  cursor: grab;
 }
 
 .cw-inspiration-color-menu {

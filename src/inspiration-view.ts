@@ -25,6 +25,10 @@ interface ParsedCardContent {
   images: string[];
   color: string | null;
   isPinned: boolean;
+  isFloating: boolean;
+  floatingX: number | null;
+  floatingY: number | null;
+  floatingWidth: number | null;
 }
 
 interface CardRenderModel extends ParsedCardContent {
@@ -61,6 +65,9 @@ export class InspirationView extends ItemView {
   private emptyEl: HTMLElement | null = null;
   private searchCountEl: HTMLElement | null = null;
   private renderPassId = 0;
+  private floatingPanelEls: HTMLElement[] = [];
+  private floatingPanelCleanup: Array<() => void> = [];
+  private floatingStartPosByPath: Map<string, { left: number; top: number; width: number }> = new Map();
 
   constructor(leaf: WorkspaceLeaf, plugin: ChineseWriterPlugin) {
     super(leaf);
@@ -86,6 +93,7 @@ export class InspirationView extends ItemView {
   async onClose(): Promise<void> {
     this.closeMenus();
     this.closeImageLightbox();
+    this.clearFloatingPanels();
   }
 
   async refresh(): Promise<void> {
@@ -98,6 +106,7 @@ export class InspirationView extends ItemView {
     this.searchCountEl = null;
     container.empty();
     this.imageExpansionControls.clear();
+    this.clearFloatingPanels();
     container.addClass("chinese-writer-view");
 
     const headerEl = container.createDiv({ cls: "chinese-writer-header" });
@@ -216,7 +225,16 @@ export class InspirationView extends ItemView {
     });
     updateSearchUi();
     this.emptyEl.hidden = true;
+    await this.renderFloatingCards(this.getFloatingModels(this.cardModels));
     await this.renderFilteredCards();
+  }
+
+  private getVisibleModels(models: CardRenderModel[]): CardRenderModel[] {
+    return models.filter((model) => !model.isFloating);
+  }
+
+  private getFloatingModels(models: CardRenderModel[]): CardRenderModel[] {
+    return models.filter((model) => model.isFloating);
   }
 
   private compareCards(a: CardRenderModel, b: CardRenderModel): number {
@@ -234,11 +252,12 @@ export class InspirationView extends ItemView {
   }
 
   private getSortedModels(models: CardRenderModel[]): CardRenderModel[] {
-    const pinned = models.filter((model) => model.isPinned);
-    const normal = models.filter((model) => !model.isPinned);
-    pinned.sort((a, b) => this.compareCards(a, b));
-    normal.sort((a, b) => this.compareCards(a, b));
-    return [...pinned, ...normal];
+    return [...models].sort((a, b) => {
+      if (a.isPinned !== b.isPinned) {
+        return a.isPinned ? -1 : 1;
+      }
+      return this.compareCards(a, b);
+    });
   }
 
   private patchCardModel(filePath: string, patch: Partial<CardRenderModel>): void {
@@ -268,7 +287,8 @@ export class InspirationView extends ItemView {
     const passId = ++this.renderPassId;
     this.imageExpansionControls.clear();
     this.listEl.empty();
-    const filteredModels = this.filterModelsBySearch(this.cardModels, this.searchQuery);
+    const visibleModels = this.getVisibleModels(this.cardModels);
+    const filteredModels = this.filterModelsBySearch(visibleModels, this.searchQuery);
     const sortedModels = this.getSortedModels(filteredModels);
     if (this.searchCountEl) {
       this.searchCountEl.setText(String(sortedModels.length));
@@ -290,7 +310,8 @@ export class InspirationView extends ItemView {
       await this.refresh();
       return;
     }
-    const filteredModels = this.filterModelsBySearch(this.cardModels, this.searchQuery);
+    const visibleModels = this.getVisibleModels(this.cardModels);
+    const filteredModels = this.filterModelsBySearch(visibleModels, this.searchQuery);
     const sortedModels = this.getSortedModels(filteredModels);
     if (this.searchCountEl) {
       this.searchCountEl.setText(String(sortedModels.length));
@@ -314,6 +335,99 @@ export class InspirationView extends ItemView {
     }
     itemEl.addClass("is-new");
     window.setTimeout(() => itemEl.removeClass("is-new"), 520);
+  }
+
+  private clearFloatingPanels(): void {
+    while (this.floatingPanelCleanup.length > 0) {
+      const dispose = this.floatingPanelCleanup.pop();
+      if (dispose) dispose();
+    }
+    for (const panelEl of this.floatingPanelEls) {
+      panelEl.remove();
+    }
+    this.floatingPanelEls = [];
+  }
+
+  private async renderFloatingCards(models: CardRenderModel[]): Promise<void> {
+    if (models.length === 0) return;
+    const hostDocument = document;
+    const hostWindow = window;
+    const sortedModels = this.getSortedModels(models);
+    const firstCardEl = this.listEl?.querySelector<HTMLElement>(".cw-inspiration-item");
+    const fallbackWidth = Math.max(
+      280,
+      Math.round(firstCardEl?.getBoundingClientRect().width ?? this.listEl?.getBoundingClientRect().width ?? 360)
+    );
+    const viewRect = this.containerEl.getBoundingClientRect();
+    for (const [index, model] of sortedModels.entries()) {
+      const panelEl = hostDocument.body.createDiv({ cls: "cw-inspiration-floating-panel" });
+      const pointerPreset = this.floatingStartPosByPath.get(model.file.path);
+      if (pointerPreset) {
+        this.floatingStartPosByPath.delete(model.file.path);
+      }
+      const panelWidth = Math.max(280, Math.round(pointerPreset?.width ?? model.floatingWidth ?? fallbackWidth));
+      panelEl.style.width = `${panelWidth}px`;
+      this.floatingPanelEls.push(panelEl);
+
+      const itemEl = await this.renderFileItem(panelEl, model);
+      const dragHandle = itemEl.querySelector<HTMLElement>(".cw-inspiration-item-bar");
+      if (!dragHandle) continue;
+
+      let dragging = false;
+      let offsetX = 0;
+      let offsetY = 0;
+
+      const clampWithinViewport = (left: number, top: number) => {
+        const rect = panelEl.getBoundingClientRect();
+        const margin = 8;
+        const maxLeft = Math.max(margin, hostWindow.innerWidth - rect.width - margin);
+        const maxTop = Math.max(margin, hostWindow.innerHeight - rect.height - margin);
+        panelEl.style.left = `${Math.min(Math.max(margin, left), maxLeft)}px`;
+        panelEl.style.top = `${Math.min(Math.max(margin, top), maxTop)}px`;
+      };
+      const defaultLeft = Math.round((viewRect.left || 24) - panelWidth - 12);
+      const defaultTop = Math.round((viewRect.top || 84) + index * 20);
+      clampWithinViewport(
+        pointerPreset?.left ?? model.floatingX ?? defaultLeft,
+        pointerPreset?.top ?? model.floatingY ?? defaultTop
+      );
+
+      const onPointerMove = (evt: PointerEvent) => {
+        if (!dragging) return;
+        clampWithinViewport(evt.clientX - offsetX, evt.clientY - offsetY);
+      };
+      const onPointerUp = () => {
+        if (dragging) {
+          const rect = panelEl.getBoundingClientRect();
+          const left = Math.round(rect.left);
+          const top = Math.round(rect.top);
+          const width = Math.round(rect.width);
+          this.floatingStartPosByPath.set(model.file.path, { left, top, width });
+          void this.persistFloatingGeometry(model.file.path, left, top, width);
+        }
+        dragging = false;
+      };
+      const onPointerDown = (evt: PointerEvent) => {
+        const target = evt.target as HTMLElement | null;
+        if (!target) return;
+        if (target.closest("button, textarea, input, a")) return;
+        if (evt.button !== 0) return;
+        const rect = panelEl.getBoundingClientRect();
+        offsetX = evt.clientX - rect.left;
+        offsetY = evt.clientY - rect.top;
+        dragging = true;
+        evt.preventDefault();
+      };
+
+      dragHandle.addEventListener("pointerdown", onPointerDown);
+      hostWindow.addEventListener("pointermove", onPointerMove);
+      hostWindow.addEventListener("pointerup", onPointerUp);
+      this.floatingPanelCleanup.push(() => {
+        dragHandle.removeEventListener("pointerdown", onPointerDown);
+        hostWindow.removeEventListener("pointermove", onPointerMove);
+        hostWindow.removeEventListener("pointerup", onPointerUp);
+      });
+    }
   }
 
   private async createInspirationCard(): Promise<void> {
@@ -384,21 +498,32 @@ export class InspirationView extends ItemView {
     let frontmatterBody = model.frontmatterBody;
     let cwDataBody = model.cwDataBody;
     let isPinned = model.isPinned;
+    let isFloating = model.isFloating;
     let currentColor = model.color;
 
     const itemEl = listEl.createDiv({ cls: "cw-inspiration-item" });
     itemEl.dataset.filePath = file.path;
     itemEl.style.setProperty("--cw-inspiration-lines", String(this.getCollapsedLines()));
     const barEl = itemEl.createDiv({ cls: "cw-inspiration-item-bar" });
+    const metaEl = barEl.createDiv({ cls: "cw-inspiration-item-meta" });
+    const pinnedBadgeEl = metaEl.createDiv({ cls: "cw-inspiration-item-pin-badge is-hidden" });
+    const pinnedBadgeIconEl = pinnedBadgeEl.createSpan({ cls: "cw-inspiration-item-pin-badge-icon" });
+    setIcon(pinnedBadgeIconEl, "pin");
+    this.setPinnedBadgeVisible(pinnedBadgeEl, isPinned);
     const timeEl = barEl.createDiv({
       cls: "cw-inspiration-item-time",
       text: this.getCardTimeText(file),
     });
+    metaEl.appendChild(timeEl);
     const actionsEl = barEl.createDiv({ cls: "cw-inspiration-item-actions" });
-    const pinnedBadgeEl = actionsEl.createDiv({ cls: "cw-inspiration-item-pin-badge is-hidden" });
-    const pinnedBadgeIconEl = pinnedBadgeEl.createSpan({ cls: "cw-inspiration-item-pin-badge-icon" });
-    setIcon(pinnedBadgeIconEl, "pin");
-    this.setPinnedBadgeVisible(pinnedBadgeEl, isPinned);
+    const isInFloatingPanel = !!listEl.closest(".cw-inspiration-floating-panel");
+    const floatBtn = actionsEl.createEl("button", {
+      cls: "cw-inspiration-item-more cw-inspiration-item-float",
+      attr: { type: "button", "aria-label": isFloating ? "收回到列表" : "悬浮便签" },
+    });
+    setIcon(floatBtn, "send-horizontal");
+    floatBtn.toggleClass("is-mirrored", !isInFloatingPanel);
+    floatBtn.toggleClass("is-active", isFloating);
     const moreBtn = actionsEl.createEl("button", {
       cls: "cw-inspiration-item-more",
       attr: { type: "button", "aria-label": "更多操作" },
@@ -489,7 +614,7 @@ export class InspirationView extends ItemView {
       if (!isTagEditorActive && normalizedTags !== tagsEditorEl.value) {
         tagsEditorEl.value = normalizedTags;
       }
-      const nextCwData = this.upsertCwDataCardContent(cwDataBody, normalizedTags, currentImages);
+      const nextCwData = this.upsertCwDataCardContent(cwDataBody, normalizedTags, currentImages, file.path);
       const nextComposed = this.composeContent(frontmatterBody, nextCwData, textareaEl.value);
       if (nextComposed === lastSavedContent) return;
       try {
@@ -538,7 +663,7 @@ export class InspirationView extends ItemView {
         pinned: isPinned,
         selectedColor: currentColor,
         onSelectColor: async (hex) => {
-          const nextCwData = this.upsertCwDataColor(cwDataBody, hex);
+          const nextCwData = this.upsertCwDataColor(cwDataBody, hex, file.path);
           const updated = this.composeContent(frontmatterBody, nextCwData, textareaEl.value);
           if (updated === lastSavedContent) return;
           try {
@@ -559,7 +684,16 @@ export class InspirationView extends ItemView {
         },
         onTogglePinned: async () => {
           const nextPinned = !isPinned;
-          const nextCwData = this.upsertCwDataPinned(cwDataBody, nextPinned);
+          if (nextPinned) {
+            const hasOtherPinned = this.cardModels.some(
+              (entry) => entry.file.path !== file.path && entry.isPinned
+            );
+            if (hasOtherPinned) {
+              new Notice("已有其他灵感便签置顶");
+              return;
+            }
+          }
+          const nextCwData = this.upsertCwDataPinned(cwDataBody, nextPinned, file.path);
           const updated = this.composeContent(frontmatterBody, nextCwData, textareaEl.value);
           if (updated === lastSavedContent) return;
           try {
@@ -589,7 +723,8 @@ export class InspirationView extends ItemView {
                   await this.app.vault.trash(file, true);
                   this.cardModels = this.cardModels.filter((entry) => entry.file.path !== file.path);
                   itemEl.remove();
-                  const filteredModels = this.filterModelsBySearch(this.cardModels, this.searchQuery);
+                  const visibleModels = this.getVisibleModels(this.cardModels);
+                  const filteredModels = this.filterModelsBySearch(visibleModels, this.searchQuery);
                   const sortedModels = this.getSortedModels(filteredModels);
                   if (this.searchCountEl) {
                     this.searchCountEl.setText(String(sortedModels.length));
@@ -607,6 +742,53 @@ export class InspirationView extends ItemView {
           modal.open();
         },
       });
+    });
+    floatBtn.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      void (async () => {
+        const nextFloating = !isFloating;
+        let floatingGeometry: { left: number; top: number; width: number } | null = null;
+        if (nextFloating) {
+          const rect = itemEl.getBoundingClientRect();
+          floatingGeometry = {
+            left: Math.round(rect.left - rect.width - 12),
+            top: Math.round(rect.top),
+            width: Math.round(rect.width),
+          };
+        }
+        const nextCwData = this.upsertCwDataFloating(cwDataBody, nextFloating, file.path, floatingGeometry);
+        const updated = this.composeContent(frontmatterBody, nextCwData, textareaEl.value);
+        if (updated === lastSavedContent) return;
+        try {
+          if (nextFloating) {
+            this.floatingStartPosByPath.set(file.path, floatingGeometry ?? {
+              left: 24,
+              top: 84,
+              width: 360,
+            });
+          } else {
+            this.floatingStartPosByPath.delete(file.path);
+          }
+          await this.modifyCardFile(file, updated);
+          cwDataBody = nextCwData;
+          isFloating = nextFloating;
+          lastSavedContent = updated;
+          floatBtn.toggleClass("is-active", isFloating);
+          floatBtn.setAttribute("aria-label", isFloating ? "收回到列表" : "悬浮便签");
+          this.patchCardModel(file.path, {
+            cwDataBody: nextCwData,
+            isFloating: nextFloating,
+            floatingX: nextFloating ? floatingGeometry?.left ?? null : null,
+            floatingY: nextFloating ? floatingGeometry?.top ?? null : null,
+            floatingWidth: nextFloating ? floatingGeometry?.width ?? null : null,
+          });
+          await this.refresh();
+        } catch (error) {
+          console.error("Failed to set floating state:", error);
+          new Notice("设置悬浮便签失败，请重试");
+        }
+      })();
     });
 
     textareaEl.addEventListener("input", () => {
@@ -1371,6 +1553,10 @@ export class InspirationView extends ItemView {
     const images = this.extractImagePaths(cwDataObj?.images);
     const color = this.normalizeHexColor(cwDataObj?.color);
     const isPinned = cwDataObj?.ispinned === true;
+    const isFloating = cwDataObj?.isfloating === true;
+    const floatingX = this.normalizeFiniteNumber(cwDataObj?.floatx);
+    const floatingY = this.normalizeFiniteNumber(cwDataObj?.floaty);
+    const floatingWidth = this.normalizeFiniteNumber(cwDataObj?.floatw);
 
     return {
       frontmatterBody,
@@ -1380,6 +1566,10 @@ export class InspirationView extends ItemView {
       images,
       color,
       isPinned,
+      isFloating,
+      floatingX,
+      floatingY,
+      floatingWidth,
     };
   }
 
@@ -1671,7 +1861,7 @@ export class InspirationView extends ItemView {
     });
   }
 
-  private upsertCwDataColor(cwDataBody: string | null, hex: string): string {
+  private upsertCwDataColor(cwDataBody: string | null, hex: string, filePath?: string): string {
     const obj = this.parseCwDataObject(cwDataBody) ?? {};
     const tagsCsv = this.formatTagCsvFromTokens(this.extractTagTokens(obj.tags));
     const imagesCsv = this.formatImageCsv(this.extractImagePaths(obj.images));
@@ -1686,10 +1876,11 @@ export class InspirationView extends ItemView {
     if (imagesCsv) {
       normalized.images = imagesCsv;
     }
+    this.applyFloatingFields(normalized, obj, filePath);
     return JSON.stringify(normalized, null, 2);
   }
 
-  private upsertCwDataPinned(cwDataBody: string | null, pinned: boolean): string {
+  private upsertCwDataPinned(cwDataBody: string | null, pinned: boolean, filePath?: string): string {
     const obj = this.parseCwDataObject(cwDataBody) ?? {};
     const tagsCsv = this.formatTagCsvFromTokens(this.extractTagTokens(obj.tags));
     const imagesCsv = this.formatImageCsv(this.extractImagePaths(obj.images));
@@ -1707,10 +1898,16 @@ export class InspirationView extends ItemView {
     if (imagesCsv) {
       normalized.images = imagesCsv;
     }
+    this.applyFloatingFields(normalized, obj, filePath);
     return JSON.stringify(normalized, null, 2);
   }
 
-  private upsertCwDataCardContent(cwDataBody: string | null, tagsLine: string, images: string[]): string {
+  private upsertCwDataCardContent(
+    cwDataBody: string | null,
+    tagsLine: string,
+    images: string[],
+    filePath?: string
+  ): string {
     const obj = this.parseCwDataObject(cwDataBody) ?? {};
     const normalized: Record<string, unknown> = {
       warning: InspirationView.CW_DATA_WARNING,
@@ -1728,7 +1925,109 @@ export class InspirationView extends ItemView {
     if (imagesCsv) {
       normalized.images = imagesCsv;
     }
+    this.applyFloatingFields(normalized, obj, filePath);
     return JSON.stringify(normalized, null, 2);
+  }
+
+  private upsertCwDataFloating(
+    cwDataBody: string | null,
+    floating: boolean,
+    filePath?: string,
+    geometry?: { left: number; top: number; width: number } | null
+  ): string {
+    const obj = this.parseCwDataObject(cwDataBody) ?? {};
+    const tagsCsv = this.formatTagCsvFromTokens(this.extractTagTokens(obj.tags));
+    const imagesCsv = this.formatImageCsv(this.extractImagePaths(obj.images));
+    const normalized: Record<string, unknown> = {
+      warning: InspirationView.CW_DATA_WARNING,
+      ispinned: typeof obj.ispinned === "boolean" ? obj.ispinned : false,
+    };
+    const existingColor = this.normalizeHexColor(obj.color);
+    if (existingColor) {
+      normalized.color = existingColor;
+    }
+    if (tagsCsv) {
+      normalized.tags = tagsCsv;
+    }
+    if (imagesCsv) {
+      normalized.images = imagesCsv;
+    }
+    if (floating) {
+      normalized.isfloating = true;
+      const resolved = geometry ?? this.resolveFloatingGeometry(obj, filePath);
+      if (resolved) {
+        normalized.floatx = resolved.left;
+        normalized.floaty = resolved.top;
+        normalized.floatw = resolved.width;
+      }
+    }
+    return JSON.stringify(normalized, null, 2);
+  }
+
+  private applyFloatingFields(
+    normalized: Record<string, unknown>,
+    obj: Record<string, unknown>,
+    filePath?: string
+  ): void {
+    if (obj.isfloating !== true) return;
+    normalized.isfloating = true;
+    const resolved = this.resolveFloatingGeometry(obj, filePath);
+    if (!resolved) return;
+    normalized.floatx = resolved.left;
+    normalized.floaty = resolved.top;
+    normalized.floatw = resolved.width;
+  }
+
+  private resolveFloatingGeometry(
+    obj: Record<string, unknown>,
+    filePath?: string
+  ): { left: number; top: number; width: number } | null {
+    const fromMemory = filePath ? this.floatingStartPosByPath.get(filePath) : null;
+    if (fromMemory) {
+      return {
+        left: Math.round(fromMemory.left),
+        top: Math.round(fromMemory.top),
+        width: Math.max(280, Math.round(fromMemory.width)),
+      };
+    }
+    const left = this.normalizeFiniteNumber(obj.floatx);
+    const top = this.normalizeFiniteNumber(obj.floaty);
+    const width = this.normalizeFiniteNumber(obj.floatw);
+    if (left === null || top === null || width === null) return null;
+    return {
+      left: Math.round(left),
+      top: Math.round(top),
+      width: Math.max(280, Math.round(width)),
+    };
+  }
+
+  private async persistFloatingGeometry(filePath: string, left: number, top: number, width: number): Promise<void> {
+    const model = this.cardModels.find((entry) => entry.file.path === filePath);
+    if (!model || !model.isFloating) return;
+    const roundedLeft = Math.round(left);
+    const roundedTop = Math.round(top);
+    const roundedWidth = Math.max(280, Math.round(width));
+    if (
+      model.floatingX === roundedLeft &&
+      model.floatingY === roundedTop &&
+      model.floatingWidth === roundedWidth
+    ) {
+      return;
+    }
+    const nextCwData = this.upsertCwDataFloating(
+      model.cwDataBody,
+      true,
+      filePath,
+      { left: roundedLeft, top: roundedTop, width: roundedWidth }
+    );
+    const updated = this.composeContent(model.frontmatterBody, nextCwData, model.body);
+    await this.modifyCardFile(model.file, updated);
+    this.patchCardModel(filePath, {
+      cwDataBody: nextCwData,
+      floatingX: roundedLeft,
+      floatingY: roundedTop,
+      floatingWidth: roundedWidth,
+    });
   }
 
   private parseCwDataObject(cwDataBody: string | null): Record<string, any> | null {
@@ -1747,6 +2046,11 @@ export class InspirationView extends ItemView {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
     return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed.toUpperCase() : null;
+  }
+
+  private normalizeFiniteNumber(value: unknown): number | null {
+    if (typeof value !== "number" || !Number.isFinite(value)) return null;
+    return value;
   }
 
   private getFrontmatterInfo(content: string): { body: string; endIndex: number } | null {
