@@ -29,6 +29,7 @@ interface ParsedCardContent {
   floatingX: number | null;
   floatingY: number | null;
   floatingWidth: number | null;
+  floatingHeight: number | null;
 }
 
 interface CardRenderModel extends ParsedCardContent {
@@ -67,7 +68,9 @@ export class InspirationView extends ItemView {
   private renderPassId = 0;
   private floatingPanelEls: HTMLElement[] = [];
   private floatingPanelCleanup: Array<() => void> = [];
-  private floatingStartPosByPath: Map<string, { left: number; top: number; width: number }> = new Map();
+  private floatingStartPosByPath: Map<string, { left: number; top: number; width: number; height: number }> = new Map();
+  private static readonly FLOATING_MIN_WIDTH = 280;
+  private static readonly FLOATING_MIN_BODY_HEIGHT = 120;
 
   constructor(leaf: WorkspaceLeaf, plugin: ChineseWriterPlugin) {
     super(leaf);
@@ -365,17 +368,37 @@ export class InspirationView extends ItemView {
       if (pointerPreset) {
         this.floatingStartPosByPath.delete(model.file.path);
       }
-      const panelWidth = Math.max(280, Math.round(pointerPreset?.width ?? model.floatingWidth ?? fallbackWidth));
+      const panelWidth = Math.max(
+        InspirationView.FLOATING_MIN_WIDTH,
+        Math.round(pointerPreset?.width ?? model.floatingWidth ?? fallbackWidth)
+      );
       panelEl.style.width = `${panelWidth}px`;
       this.floatingPanelEls.push(panelEl);
 
       const itemEl = await this.renderFileItem(panelEl, model);
       const dragHandle = itemEl.querySelector<HTMLElement>(".cw-inspiration-item-bar");
       if (!dragHandle) continue;
+      const fallbackBodyHeight = Math.max(
+        InspirationView.FLOATING_MIN_BODY_HEIGHT,
+        Math.round(
+          itemEl.querySelector<HTMLElement>(".cw-inspiration-item-preview")?.getBoundingClientRect().height ?? 220
+        )
+      );
+      const bodyHeight = Math.max(
+        InspirationView.FLOATING_MIN_BODY_HEIGHT,
+        Math.round(pointerPreset?.height ?? model.floatingHeight ?? fallbackBodyHeight)
+      );
+      this.setFloatingBodyHeight(itemEl, bodyHeight);
+      const resizeHandle = panelEl.createDiv({ cls: "cw-inspiration-floating-resize-handle" });
 
       let dragging = false;
+      let resizing = false;
       let offsetX = 0;
       let offsetY = 0;
+      let resizeStartX = 0;
+      let resizeStartY = 0;
+      let resizeStartWidth = 0;
+      let resizeStartBodyHeight = 0;
 
       const clampWithinViewport = (left: number, top: number) => {
         const rect = panelEl.getBoundingClientRect();
@@ -393,19 +416,37 @@ export class InspirationView extends ItemView {
       );
 
       const onPointerMove = (evt: PointerEvent) => {
-        if (!dragging) return;
-        clampWithinViewport(evt.clientX - offsetX, evt.clientY - offsetY);
+        if (dragging) {
+          clampWithinViewport(evt.clientX - offsetX, evt.clientY - offsetY);
+          return;
+        }
+        if (!resizing) return;
+        const rect = panelEl.getBoundingClientRect();
+        const margin = 8;
+        const minWidth = InspirationView.FLOATING_MIN_WIDTH;
+        const minBodyHeight = InspirationView.FLOATING_MIN_BODY_HEIGHT;
+        const maxWidth = hostWindow.innerWidth - rect.left - margin;
+        const nextWidth = Math.min(
+          Math.max(minWidth, resizeStartWidth + (evt.clientX - resizeStartX)),
+          Math.max(minWidth, Math.round(maxWidth))
+        );
+        const nextBodyHeight = Math.max(minBodyHeight, resizeStartBodyHeight + (evt.clientY - resizeStartY));
+        panelEl.style.width = `${Math.round(nextWidth)}px`;
+        this.setFloatingBodyHeight(itemEl, Math.round(nextBodyHeight));
+        clampWithinViewport(rect.left, rect.top);
       };
       const onPointerUp = () => {
-        if (dragging) {
+        if (dragging || resizing) {
           const rect = panelEl.getBoundingClientRect();
           const left = Math.round(rect.left);
           const top = Math.round(rect.top);
           const width = Math.round(rect.width);
-          this.floatingStartPosByPath.set(model.file.path, { left, top, width });
-          void this.persistFloatingGeometry(model.file.path, left, top, width);
+          const height = this.getFloatingBodyHeight(itemEl);
+          this.floatingStartPosByPath.set(model.file.path, { left, top, width, height });
+          void this.persistFloatingGeometry(model.file.path, left, top, width, height);
         }
         dragging = false;
+        resizing = false;
       };
       const onPointerDown = (evt: PointerEvent) => {
         const target = evt.target as HTMLElement | null;
@@ -418,12 +459,25 @@ export class InspirationView extends ItemView {
         dragging = true;
         evt.preventDefault();
       };
+      const onResizePointerDown = (evt: PointerEvent) => {
+        if (evt.button !== 0) return;
+        const rect = panelEl.getBoundingClientRect();
+        resizeStartX = evt.clientX;
+        resizeStartY = evt.clientY;
+        resizeStartWidth = rect.width;
+        resizeStartBodyHeight = this.getFloatingBodyHeight(itemEl);
+        resizing = true;
+        evt.preventDefault();
+        evt.stopPropagation();
+      };
 
       dragHandle.addEventListener("pointerdown", onPointerDown);
+      resizeHandle.addEventListener("pointerdown", onResizePointerDown);
       hostWindow.addEventListener("pointermove", onPointerMove);
       hostWindow.addEventListener("pointerup", onPointerUp);
       this.floatingPanelCleanup.push(() => {
         dragHandle.removeEventListener("pointerdown", onPointerDown);
+        resizeHandle.removeEventListener("pointerdown", onResizePointerDown);
         hostWindow.removeEventListener("pointermove", onPointerMove);
         hostWindow.removeEventListener("pointerup", onPointerUp);
       });
@@ -749,13 +803,14 @@ export class InspirationView extends ItemView {
       evt.stopPropagation();
       void (async () => {
         const nextFloating = !isFloating;
-        let floatingGeometry: { left: number; top: number; width: number } | null = null;
+        let floatingGeometry: { left: number; top: number; width: number; height: number } | null = null;
         if (nextFloating) {
           const rect = itemEl.getBoundingClientRect();
           floatingGeometry = {
             left: Math.round(rect.left - rect.width - 12),
             top: Math.round(rect.top),
             width: Math.round(rect.width),
+            height: this.getFloatingBodyHeight(itemEl),
           };
         }
         let nextCwData = this.upsertCwDataFloating(cwDataBody, nextFloating, file.path, floatingGeometry);
@@ -771,6 +826,7 @@ export class InspirationView extends ItemView {
               left: 24,
               top: 84,
               width: 360,
+              height: 220,
             });
           } else {
             this.floatingStartPosByPath.delete(file.path);
@@ -792,6 +848,7 @@ export class InspirationView extends ItemView {
             floatingX: nextFloating ? floatingGeometry?.left ?? null : null,
             floatingY: nextFloating ? floatingGeometry?.top ?? null : null,
             floatingWidth: nextFloating ? floatingGeometry?.width ?? null : null,
+            floatingHeight: nextFloating ? floatingGeometry?.height ?? null : null,
           });
           await this.refresh();
         } catch (error) {
@@ -1047,6 +1104,12 @@ export class InspirationView extends ItemView {
   }
 
   private setEditorExpanded(textareaEl: HTMLTextAreaElement, expanded: boolean): void {
+    const floatingBodyHeight = this.resolveFloatingBodyHeightForEditor(textareaEl);
+    if (floatingBodyHeight !== null) {
+      textareaEl.style.maxHeight = `${floatingBodyHeight}px`;
+      textareaEl.style.height = `${floatingBodyHeight}px`;
+      return;
+    }
     const collapsedMaxHeight = this.getCollapsedMaxHeight(textareaEl);
     textareaEl.style.maxHeight = expanded ? "none" : `${collapsedMaxHeight}px`;
     textareaEl.style.height = "0px";
@@ -1084,6 +1147,30 @@ export class InspirationView extends ItemView {
     const raw = this.plugin.settings.inspirationPreviewLines;
     const normalized = Number.isFinite(raw) ? Math.round(raw) : 3;
     return Math.min(10, Math.max(1, normalized));
+  }
+
+  private setFloatingBodyHeight(itemEl: HTMLElement, height: number): void {
+    const normalized = Math.max(InspirationView.FLOATING_MIN_BODY_HEIGHT, Math.round(height));
+    itemEl.style.setProperty("--cw-inspiration-floating-body-height", `${normalized}px`);
+  }
+
+  private getFloatingBodyHeight(itemEl: HTMLElement): number {
+    const raw = itemEl.style.getPropertyValue("--cw-inspiration-floating-body-height").trim();
+    const parsed = Number.parseFloat(raw);
+    if (Number.isFinite(parsed)) {
+      return Math.max(InspirationView.FLOATING_MIN_BODY_HEIGHT, Math.round(parsed));
+    }
+    const previewEl = itemEl.querySelector<HTMLElement>(".cw-inspiration-item-preview");
+    const fallback = previewEl?.getBoundingClientRect().height ?? 220;
+    return Math.max(InspirationView.FLOATING_MIN_BODY_HEIGHT, Math.round(fallback));
+  }
+
+  private resolveFloatingBodyHeightForEditor(textareaEl: HTMLTextAreaElement): number | null {
+    const itemEl = textareaEl.closest<HTMLElement>(".cw-inspiration-item");
+    if (!itemEl) return null;
+    const panelEl = itemEl.closest<HTMLElement>(".cw-inspiration-floating-panel");
+    if (!panelEl) return null;
+    return this.getFloatingBodyHeight(itemEl);
   }
 
   private setPinnedBadgeVisible(badgeEl: HTMLElement, visible: boolean): void {
@@ -1574,6 +1661,7 @@ export class InspirationView extends ItemView {
     const floatingX = this.normalizeFiniteNumber(cwDataObj?.floatx);
     const floatingY = this.normalizeFiniteNumber(cwDataObj?.floaty);
     const floatingWidth = this.normalizeFiniteNumber(cwDataObj?.floatw);
+    const floatingHeight = this.normalizeFiniteNumber(cwDataObj?.floath);
 
     return {
       frontmatterBody,
@@ -1587,6 +1675,7 @@ export class InspirationView extends ItemView {
       floatingX,
       floatingY,
       floatingWidth,
+      floatingHeight,
     };
   }
 
@@ -1950,7 +2039,7 @@ export class InspirationView extends ItemView {
     cwDataBody: string | null,
     floating: boolean,
     filePath?: string,
-    geometry?: { left: number; top: number; width: number } | null
+    geometry?: { left: number; top: number; width: number; height: number } | null
   ): string {
     const obj = this.parseCwDataObject(cwDataBody) ?? {};
     const tagsCsv = this.formatTagCsvFromTokens(this.extractTagTokens(obj.tags));
@@ -1976,6 +2065,7 @@ export class InspirationView extends ItemView {
         normalized.floatx = resolved.left;
         normalized.floaty = resolved.top;
         normalized.floatw = resolved.width;
+        normalized.floath = resolved.height;
       }
     }
     return JSON.stringify(normalized, null, 2);
@@ -1993,41 +2083,53 @@ export class InspirationView extends ItemView {
     normalized.floatx = resolved.left;
     normalized.floaty = resolved.top;
     normalized.floatw = resolved.width;
+    normalized.floath = resolved.height;
   }
 
   private resolveFloatingGeometry(
     obj: Record<string, unknown>,
     filePath?: string
-  ): { left: number; top: number; width: number } | null {
+  ): { left: number; top: number; width: number; height: number } | null {
     const fromMemory = filePath ? this.floatingStartPosByPath.get(filePath) : null;
     if (fromMemory) {
       return {
         left: Math.round(fromMemory.left),
         top: Math.round(fromMemory.top),
-        width: Math.max(280, Math.round(fromMemory.width)),
+        width: Math.max(InspirationView.FLOATING_MIN_WIDTH, Math.round(fromMemory.width)),
+        height: Math.max(InspirationView.FLOATING_MIN_BODY_HEIGHT, Math.round(fromMemory.height)),
       };
     }
     const left = this.normalizeFiniteNumber(obj.floatx);
     const top = this.normalizeFiniteNumber(obj.floaty);
     const width = this.normalizeFiniteNumber(obj.floatw);
-    if (left === null || top === null || width === null) return null;
+    const height = this.normalizeFiniteNumber(obj.floath);
+    if (left === null || top === null || width === null || height === null) return null;
     return {
       left: Math.round(left),
       top: Math.round(top),
-      width: Math.max(280, Math.round(width)),
+      width: Math.max(InspirationView.FLOATING_MIN_WIDTH, Math.round(width)),
+      height: Math.max(InspirationView.FLOATING_MIN_BODY_HEIGHT, Math.round(height)),
     };
   }
 
-  private async persistFloatingGeometry(filePath: string, left: number, top: number, width: number): Promise<void> {
+  private async persistFloatingGeometry(
+    filePath: string,
+    left: number,
+    top: number,
+    width: number,
+    height: number
+  ): Promise<void> {
     const model = this.cardModels.find((entry) => entry.file.path === filePath);
     if (!model || !model.isFloating) return;
     const roundedLeft = Math.round(left);
     const roundedTop = Math.round(top);
-    const roundedWidth = Math.max(280, Math.round(width));
+    const roundedWidth = Math.max(InspirationView.FLOATING_MIN_WIDTH, Math.round(width));
+    const roundedHeight = Math.max(InspirationView.FLOATING_MIN_BODY_HEIGHT, Math.round(height));
     if (
       model.floatingX === roundedLeft &&
       model.floatingY === roundedTop &&
-      model.floatingWidth === roundedWidth
+      model.floatingWidth === roundedWidth &&
+      model.floatingHeight === roundedHeight
     ) {
       return;
     }
@@ -2035,7 +2137,7 @@ export class InspirationView extends ItemView {
       model.cwDataBody,
       true,
       filePath,
-      { left: roundedLeft, top: roundedTop, width: roundedWidth }
+      { left: roundedLeft, top: roundedTop, width: roundedWidth, height: roundedHeight }
     );
     const updated = this.composeContent(model.frontmatterBody, nextCwData, model.body);
     await this.modifyCardFile(model.file, updated);
@@ -2044,6 +2146,7 @@ export class InspirationView extends ItemView {
       floatingX: roundedLeft,
       floatingY: roundedTop,
       floatingWidth: roundedWidth,
+      floatingHeight: roundedHeight,
     });
   }
 
