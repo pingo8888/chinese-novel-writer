@@ -461,10 +461,13 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  transition: box-shadow 140ms ease;
 }
 
 .cw-inspiration-item:hover {
   background: transparent;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
 }
 
 .cw-inspiration-item.is-active {
@@ -476,12 +479,195 @@
   background: var(--cw-inspiration-card-color-bg, transparent);
 }
 
+.cw-inspiration-item-pin-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.cw-inspiration-item-pin-badge.is-hidden {
+  display: none;
+}
+
+.cw-inspiration-item-pin-badge-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+}
+
+.cw-inspiration-item-pin-badge-icon svg {
+  display: block;
+  width: 13px;
+  height: 13px;
+}
+
 .cw-inspiration-item-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   background: transparent;
   min-height: 18px;
+}
+
+.cw-inspiration-item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cw-inspiration-item-media-toggle {
+  margin-right: -2px;
+  margin-left: 6px;
+}
+
+.cw-inspiration-item-images {
+  margin: 2px 0 2px 4px;
+}
+
+.cw-inspiration-item-images.is-hidden {
+  display: none;
+}
+
+.cw-inspiration-item-image-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cw-inspiration-item-image-slot {
+  width: 92px;
+  height: 92px;
+  border: 1px dashed var(--text-muted);
+  border-radius: 8px;
+  background: var(--background-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+}
+
+.cw-inspiration-item-image-slot.is-add {
+  appearance: none;
+  -webkit-appearance: none;
+  box-shadow: none !important;
+  outline: none !important;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-muted);
+  background: transparent !important;
+}
+
+.cw-inspiration-item-image-slot.is-add:hover {
+  border-color: var(--interactive-accent);
+  color: var(--interactive-accent);
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.cw-inspiration-item-image-slot.is-missing {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.cw-inspiration-item-image-add-plus {
+  font-size: 34px;
+  line-height: 1;
+  font-weight: 300;
+}
+
+.cw-inspiration-item-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cw-inspiration-item-image-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55) !important;
+  color: #ffffff !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.cw-inspiration-item-image-remove:hover {
+  background: rgba(0, 0, 0, 0.72) !important;
+}
+
+.cw-inspiration-item-image-remove svg {
+  width: 12px;
+  height: 12px;
+}
+
+.cw-inspiration-image-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.cw-inspiration-image-lightbox-content {
+  position: relative;
+  max-width: min(92vw, 1200px);
+  max-height: 92vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cw-inspiration-image-lightbox-img {
+  display: block;
+  max-width: 100%;
+  max-height: 92vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+}
+
+.cw-inspiration-image-lightbox-close {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 28px;
+  height: 28px;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.7) !important;
+  color: #ffffff !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+}
+
+.cw-inspiration-image-lightbox-close:hover {
+  background: rgba(0, 0, 0, 0.85) !important;
 }
 
 .cw-inspiration-item-time {
@@ -806,6 +992,115 @@
 
 .cw-inspiration-item-preview> :last-child {
   margin-bottom: 0;
+}
+
+.cw-inspiration-item-tags-preview {
+  --cw-inspiration-tag-color: #4a86e9;
+  --cw-inspiration-tag-bg: rgba(74, 134, 233, 0.5);
+  border: none;
+  border-radius: 0;
+  background: transparent !important;
+  padding: 0 0 0 4px;
+  min-height: calc(var(--line-height-normal) * 1em);
+  max-height: none;
+  overflow: hidden;
+  cursor: text;
+  color: var(--cw-inspiration-tag-color);
+  font-size: calc(var(--font-text-size) - 5px);
+  line-height: var(--line-height-normal);
+  flex: 1;
+  min-width: 0;
+}
+
+.cw-inspiration-item-tags-preview.is-hidden {
+  display: none;
+}
+
+.cw-inspiration-item-tags-preview.is-empty {
+  color: var(--text-faint);
+}
+
+.cw-inspiration-item-tags-preview p {
+  margin: 0 !important;
+}
+
+.cw-inspiration-item-tags-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: center;
+}
+
+.cw-inspiration-item-tag-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 4px;
+  padding: 1px 7px;
+  color: #ffffff;
+  background: var(--cw-inspiration-tag-bg);
+  line-height: 1.35;
+}
+
+.cw-inspiration-item-tags-preview .tag,
+.cw-inspiration-item-tags-preview a.tag,
+.cw-inspiration-item-tags-preview .tag[href] {
+  color: var(--cw-inspiration-tag-color) !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+.cw-inspiration-item-tags-editor {
+  width: 100%;
+  min-height: 0;
+  resize: none;
+  overflow: hidden;
+  padding: 0 0 0 4px;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  background: transparent !important;
+  color: var(--cw-inspiration-tag-color);
+  cursor: text;
+  font-family: var(--font-text);
+  font-size: calc(var(--font-text-size) - 4px);
+  line-height: var(--line-height-normal);
+  flex: 1;
+  min-width: 0;
+}
+
+.cw-inspiration-item-tags-editor.is-hidden {
+  display: none;
+}
+
+.cw-inspiration-item-tags-editor:hover {
+  background: transparent !important;
+}
+
+.cw-inspiration-item-tags-editor:focus,
+.cw-inspiration-item-tags-editor:focus-visible,
+.cw-inspiration-item-tags-editor:active {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  background: transparent !important;
+}
+
+.cw-inspiration-item.has-custom-color .cw-inspiration-item-tags-editor,
+.cw-inspiration-item.has-custom-color .cw-inspiration-item-tags-editor:hover,
+.cw-inspiration-item.has-custom-color .cw-inspiration-item-tags-editor:focus,
+.cw-inspiration-item.has-custom-color .cw-inspiration-item-tags-editor:focus-visible,
+.cw-inspiration-item.has-custom-color .cw-inspiration-item-tags-editor:active {
+  background: transparent !important;
+}
+
+.cw-inspiration-item-tags-row {
+  display: flex;
+  align-items: flex-end;
+}
+
+.cw-inspiration-item-tags-content {
+  flex: 1;
+  min-width: 0;
 }
 
 /* 树结构 */
