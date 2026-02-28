@@ -1024,15 +1024,20 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       .setDesc("填写 Vault 内目录路径，递归读取该目录及子目录下所有 .md 文件")
       .addText((text) =>
       (inspirationPathInput = text,
-        text.inputEl.addEventListener("blur", async () => {
-          const trimmed = this.plugin.settings.inspirationFolderPath.trim();
-          this.plugin.settings.inspirationFolderPath = trimmed;
-          await this.plugin.saveSettings();
-          if (trimmed.length > 0 && !this.isFolderExisting(trimmed)) {
-            new Notice("灵感便签路径无效：请填写 Vault 内目录路径");
-            return;
-          }
-          await this.plugin.refreshInspirationView();
+        text.inputEl.addEventListener("blur", () => {
+          window.setTimeout(() => {
+            void (async () => {
+              const normalized = this.normalizeVaultPath(text.inputEl.value);
+              text.inputEl.value = normalized;
+              this.plugin.settings.inspirationFolderPath = normalized;
+              await this.plugin.saveSettings();
+              if (normalized.length > 0 && !(await this.isFolderExistingAsync(normalized))) {
+                new Notice("灵感便签路径无效：请填写 Vault 内目录路径");
+                return;
+              }
+              await this.plugin.refreshInspirationView();
+            })();
+          }, 0);
         }),
         text
           .setPlaceholder("灵感")
@@ -1109,8 +1114,25 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
   }
 
   private isFolderExisting(folderPath: string): boolean {
-    const folder = this.app.vault.getAbstractFileByPath(folderPath);
+    const normalized = this.normalizeVaultPath(folderPath);
+    const folder = this.app.vault.getAbstractFileByPath(normalized);
     return folder instanceof TFolder;
+  }
+
+  private async isFolderExistingAsync(folderPath: string): Promise<boolean> {
+    if (this.isFolderExisting(folderPath)) return true;
+    const normalized = this.normalizeVaultPath(folderPath);
+    if (!normalized) return false;
+    try {
+      if (await this.app.vault.adapter.exists(normalized)) return true;
+      return await this.app.vault.adapter.exists(`${normalized}/`);
+    } catch {
+      return false;
+    }
+  }
+
+  private normalizeVaultPath(path: string): string {
+    return path.trim().replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
   }
 
   /**
@@ -1322,7 +1344,9 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           activeSuggestionIndex = idx;
           updateActiveSuggestion();
         });
-        row.addEventListener("click", () => {
+        row.addEventListener("mousedown", (event: MouseEvent) => {
+          event.preventDefault();
+          event.stopPropagation();
           activeSuggestionIndex = idx;
           acceptActiveSuggestion();
           inputEl.focus();
@@ -1406,3 +1430,5 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
     }, delayMs);
   }
 }
+
+

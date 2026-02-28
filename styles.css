@@ -878,7 +878,7 @@
   max-height: min(76vh, 720px);
   overflow: auto;
   border-radius: 10px;
-  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 12px 12px rgba(0, 0, 0, 0.22);
 }
 
 .cw-inspiration-floating-panel .cw-inspiration-item {
