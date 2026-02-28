@@ -129,6 +129,8 @@ export interface ChineseWriterSettings {
   inspirationFolderPath: string;
   /** 灵感便签有图片时是否默认展开图片区 */
   inspirationAutoExpandImages: boolean;
+  /** 标签栏是否显示文字提示 */
+  inspirationShowTagHint: boolean;
   /** 是否启用错别字与敏感词词典检测/修正 */
   enableTypoDictionary: boolean;
   /** 错别字与敏感词词典目录路径（递归读取目录下所有 md） */
@@ -188,6 +190,7 @@ export const DEFAULT_SETTINGS: ChineseWriterSettings = {
   inspirationPreviewLines: 4,
   inspirationFolderPath: "",
   inspirationAutoExpandImages: true,
+  inspirationShowTagHint: true,
   enableTypoDictionary: false,
   typoDictionaryFolderPath: "",
   enableCnPunctuationAutoPair: false,
@@ -200,7 +203,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
   plugin: ChineseWriterPlugin;
   private isAddingMapping = false;
   private delayedSaveTimer: number | null = null;
-  private activeTabKey: "setting" | "quick" | "check" | "typography" | "other" = "setting";
+  private activeTabKey: "setting" | "quick" | "check" | "inspiration" | "typography" | "other" = "setting";
 
   constructor(app: App, plugin: ChineseWriterPlugin) {
     super(app, plugin);
@@ -246,6 +249,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       setting: tabContent.createDiv({ cls: "cw-settings-tab-panel" }),
       quick: tabContent.createDiv({ cls: "cw-settings-tab-panel" }),
       check: tabContent.createDiv({ cls: "cw-settings-tab-panel" }),
+      inspiration: tabContent.createDiv({ cls: "cw-settings-tab-panel" }),
       typography: tabContent.createDiv({ cls: "cw-settings-tab-panel" }),
       other: tabContent.createDiv({ cls: "cw-settings-tab-panel" }),
     };
@@ -254,6 +258,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
       { key: "setting", label: "设定管理" },
       { key: "quick", label: "快捷输入" },
       { key: "check", label: "文本纠错" },
+      { key: "inspiration", label: "灵感便签" },
       { key: "typography", label: "正文排版" },
       { key: "other", label: "其他功能" },
     ];
@@ -293,6 +298,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
     const settingTabEl = tabPanels.setting;
     const quickTabEl = tabPanels.quick;
     const checkTabEl = tabPanels.check;
+    const inspirationTabEl = tabPanels.inspiration;
     const typographyTabEl = tabPanels.typography;
     const otherTabEl = tabPanels.other;
 
@@ -941,10 +947,14 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
+    // 灵感便签设置
+    inspirationTabEl.createEl("h3", { text: "灵感便签" });
+
     let inspirationPathInput: { setDisabled: (disabled: boolean) => unknown } | null = null;
     let inspirationLinesSlider: { setDisabled: (disabled: boolean) => unknown } | null = null;
     let inspirationAutoExpandToggle: { setDisabled: (disabled: boolean) => unknown } | null = null;
-    new Setting(otherTabEl)
+    let inspirationTagHintToggle: { setDisabled: (disabled: boolean) => unknown } | null = null;
+    new Setting(inspirationTabEl)
       .setName("启用灵感便签")
       .setDesc("开启后可使用命令“打开灵感便签”")
       .addToggle((toggle) =>
@@ -955,6 +965,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
             inspirationPathInput?.setDisabled(!value);
             inspirationLinesSlider?.setDisabled(!value);
             inspirationAutoExpandToggle?.setDisabled(!value);
+            inspirationTagHintToggle?.setDisabled(!value);
             await this.plugin.saveSettings();
             if (!value) {
               this.plugin.closeInspirationView();
@@ -964,7 +975,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(otherTabEl)
+    new Setting(inspirationTabEl)
       .setName("灵感便签默认行数")
       .setDesc("设置便签预览默认显示行数（编辑时会自动展开）")
       .addSlider((slider) =>
@@ -980,7 +991,7 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
         }))
       );
 
-    new Setting(otherTabEl)
+    new Setting(inspirationTabEl)
       .setName("图片默认展开")
       .setDesc("开启后，灵感便签有图片时默认展开图片区")
       .addToggle((toggle) =>
@@ -994,7 +1005,21 @@ export class ChineseWriterSettingTab extends PluginSettingTab {
         }))
       );
 
-    new Setting(otherTabEl)
+    new Setting(inspirationTabEl)
+      .setName("标签栏文字提示")
+      .setDesc("关闭后，标签栏空状态不显示示例提示文字")
+      .addToggle((toggle) =>
+      (inspirationTagHintToggle = toggle, toggle
+        .setValue(this.plugin.settings.inspirationShowTagHint)
+        .setDisabled(!this.plugin.settings.enableInspirationView)
+        .onChange(async (value) => {
+          this.plugin.settings.inspirationShowTagHint = value;
+          await this.plugin.saveSettings();
+          await this.plugin.refreshInspirationView();
+        }))
+      );
+
+    new Setting(inspirationTabEl)
       .setName("设置灵感便签路径")
       .setDesc("填写 Vault 内目录路径，递归读取该目录及子目录下所有 .md 文件")
       .addText((text) =>

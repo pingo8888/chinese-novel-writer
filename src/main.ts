@@ -29,6 +29,7 @@ export default class ChineseWriterPlugin extends Plugin {
   private pluginDir = "";
   private settingsFilePath = "";
   private settingMenuRootEl: HTMLElement | null = null;
+  private suppressedInspirationRefreshPaths: Set<string> = new Set();
   private settingMenuChildEl: HTMLElement | null = null;
   private settingMenuCloseTimer: number | null = null;
   private settingMenuExpandDirection: "right" | "left" = "right";
@@ -182,7 +183,10 @@ export default class ChineseWriterPlugin extends Plugin {
           this.slashSnippetCompleteManager.onVaultPathChanged(file.path);
           this.highlightManager.onVaultPathChanged(file.path);
           this.smartUpdateView();
-          void this.refreshInspirationView();
+          if (this.shouldRefreshInspirationForPath(file.path) &&
+            !this.consumeSuppressedInspirationRefreshPath(file.path)) {
+            void this.refreshInspirationView();
+          }
           this.updateH3CacheForSettingFile(file.path);
 
           // 如果修改的是设定库中的文件，清除关键字缓存并刷新编辑器
@@ -209,7 +213,10 @@ export default class ChineseWriterPlugin extends Plugin {
           this.slashSnippetCompleteManager.onVaultPathChanged(file.path);
           this.highlightManager.onVaultPathChanged(file.path);
           this.syncOrderOnFileCreate(file);
-          void this.refreshInspirationView();
+          if (!this.consumeSuppressedInspirationRefreshPath(file.path) &&
+            this.shouldRefreshInspirationForPath(file.path)) {
+            void this.refreshInspirationView();
+          }
           this.updateH3CacheForSettingFile(file.path);
         }
       })
@@ -223,14 +230,18 @@ export default class ChineseWriterPlugin extends Plugin {
           this.slashSnippetCompleteManager.onVaultPathChanged(file.path);
           this.highlightManager.onVaultPathChanged(file.path);
           this.syncOrderOnFileDelete(file);
-          void this.refreshInspirationView();
+          if (this.shouldRefreshInspirationForPath(file.path)) {
+            void this.refreshInspirationView();
+          }
           this.updateH3CacheForSettingFile(file.path);
           return;
         }
 
         if (file instanceof TFolder) {
           this.highlightManager.onVaultPathChanged(file.path);
-          void this.refreshInspirationView();
+          if (this.shouldRefreshInspirationForPath(file.path)) {
+            void this.refreshInspirationView();
+          }
           void this.handleMappedFolderDeleted(file.path);
         }
       })
@@ -245,7 +256,9 @@ export default class ChineseWriterPlugin extends Plugin {
           this.slashSnippetCompleteManager.onVaultPathChanged(file.path, oldPath);
           this.highlightManager.onVaultPathChanged(file.path, oldPath);
           this.syncOrderOnFileRename(file, oldPath);
-          void this.refreshInspirationView();
+          if (this.shouldRefreshInspirationForPath(file.path) || this.shouldRefreshInspirationForPath(oldPath)) {
+            void this.refreshInspirationView();
+          }
           this.updateH3CacheForSettingFile(oldPath);
           this.updateH3CacheForSettingFile(file.path);
           return;
@@ -253,7 +266,9 @@ export default class ChineseWriterPlugin extends Plugin {
 
         if (file instanceof TFolder) {
           this.highlightManager.onVaultPathChanged(file.path, oldPath);
-          void this.refreshInspirationView();
+          if (this.shouldRefreshInspirationForPath(file.path) || this.shouldRefreshInspirationForPath(oldPath)) {
+            void this.refreshInspirationView();
+          }
           void this.handleMappedFolderRenamed(oldPath, file.path);
         }
       })
@@ -336,6 +351,28 @@ export default class ChineseWriterPlugin extends Plugin {
         await view.refresh();
       }
     }
+  }
+
+  suppressNextInspirationRefreshForPath(path: string): void {
+    if (!path) return;
+    this.suppressedInspirationRefreshPaths.add(path);
+    window.setTimeout(() => {
+      this.suppressedInspirationRefreshPaths.delete(path);
+    }, 1500);
+  }
+
+  private consumeSuppressedInspirationRefreshPath(path: string): boolean {
+    if (!path) return false;
+    if (!this.suppressedInspirationRefreshPaths.has(path)) return false;
+    this.suppressedInspirationRefreshPaths.delete(path);
+    return true;
+  }
+
+  private shouldRefreshInspirationForPath(path: string): boolean {
+    if (!path) return false;
+    const configured = this.settings.inspirationFolderPath.trim().replace(/\/+$/g, "");
+    if (!configured) return false;
+    return path === configured || path.startsWith(`${configured}/`);
   }
 
   applyInspirationImageAutoExpandSetting(enabled: boolean): void {

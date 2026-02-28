@@ -55,6 +55,12 @@ export class InspirationView extends ItemView {
   private expandedImageCards: Set<string> = new Set();
   private imageExpansionControls: Map<string, ImageExpansionControl> = new Map();
   private imageLightboxEl: HTMLElement | null = null;
+  private searchQuery = "";
+  private cardModels: CardRenderModel[] = [];
+  private listEl: HTMLElement | null = null;
+  private emptyEl: HTMLElement | null = null;
+  private searchCountEl: HTMLElement | null = null;
+  private renderPassId = 0;
 
   constructor(leaf: WorkspaceLeaf, plugin: ChineseWriterPlugin) {
     super(leaf);
@@ -85,6 +91,11 @@ export class InspirationView extends ItemView {
   async refresh(): Promise<void> {
     const container = this.containerEl.children[1];
     if (!container) return;
+    this.renderPassId += 1;
+    this.cardModels = [];
+    this.listEl = null;
+    this.emptyEl = null;
+    this.searchCountEl = null;
     container.empty();
     this.imageExpansionControls.clear();
     container.addClass("chinese-writer-view");
@@ -94,15 +105,13 @@ export class InspirationView extends ItemView {
     const iconEl = titleEl.createSpan({ cls: "chinese-writer-icon" });
     setIcon(iconEl, "lightbulb");
     titleEl.createSpan({ text: "灵感便签", cls: "chinese-writer-folder-name" });
-
-    const sortBtn = headerEl.createEl("button", { cls: "chinese-writer-toggle-btn" });
-    setIcon(sortBtn, this.getSortButtonIcon(this.sortMode));
-    sortBtn.setAttribute("aria-label", "排序");
-    sortBtn.setAttribute("title", `排序：${this.getSortLabel(this.sortMode)}`);
-    sortBtn.addEventListener("click", (evt) => {
-      evt.preventDefault();
-      evt.stopPropagation();
-      this.openSortMenu(sortBtn);
+    const createBtn = headerEl.createEl("button", {
+      cls: "chinese-writer-toggle-btn cw-inspiration-create-btn",
+      attr: { type: "button", "aria-label": "新建灵感便签" },
+    });
+    setIcon(createBtn, "sparkles");
+    createBtn.addEventListener("click", () => {
+      void this.createInspirationCard();
     });
 
     const contentEl = container.createDiv({ cls: "cw-inspiration-content" });
@@ -131,7 +140,7 @@ export class InspirationView extends ItemView {
     if (files.length === 0) {
       contentEl.createEl("p", {
         cls: "setting-item-description",
-        text: "该目录下暂无 Markdown 文件。",
+        text: "该目录下暂无灵感便签文件。",
       });
       return;
     }
@@ -143,18 +152,74 @@ export class InspirationView extends ItemView {
         return { file, ...parsed } as CardRenderModel;
       })
     );
-    cardModels.sort((a, b) => this.compareCards(a, b));
+    this.cardModels = cardModels;
 
-    const listEl = contentEl.createDiv({ cls: "cw-inspiration-list" });
-    for (const model of cardModels) {
-      await this.renderFileItem(listEl, model);
+    const searchBarEl = contentEl.createDiv({ cls: "cw-inspiration-search" });
+    const searchFieldEl = searchBarEl.createDiv({ cls: "cw-inspiration-search-field" });
+    const searchInputEl = searchFieldEl.createEl("input", {
+      cls: "cw-inspiration-search-input",
+      attr: {
+        type: "search",
+        placeholder: "搜索正文或 #标签",
+        "aria-label": "搜索灵感便签",
+      },
+    });
+    this.searchCountEl = searchFieldEl.createSpan({
+      cls: "cw-inspiration-search-count",
+      text: "0",
+    });
+    searchInputEl.value = this.searchQuery;
+    const clearSearchBtn = searchBarEl.createEl("button", {
+      cls: "cw-inspiration-search-clear",
+      attr: { type: "button", "aria-label": "清空搜索" },
+    });
+    setIcon(clearSearchBtn, "brush-cleaning");
+    if (!clearSearchBtn.querySelector("svg")) {
+      clearSearchBtn.setText("×");
     }
+    const sortBtn = searchBarEl.createEl("button", { cls: "chinese-writer-toggle-btn" });
+    setIcon(sortBtn, this.getSortButtonIcon(this.sortMode));
+    sortBtn.setAttribute("aria-label", "排序");
+    sortBtn.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      this.openSortMenu(sortBtn);
+    });
+    this.listEl = contentEl.createDiv({ cls: "cw-inspiration-list" });
+    this.emptyEl = contentEl.createEl("p", {
+      cls: "setting-item-description cw-inspiration-search-empty",
+      text: "没有匹配的灵感便签。",
+    });
+    const updateSearchUi = () => {
+      clearSearchBtn.hidden = this.searchQuery.length === 0;
+    };
+    searchInputEl.addEventListener("input", () => {
+      this.searchQuery = searchInputEl.value.trim();
+      updateSearchUi();
+      void this.renderFilteredCards();
+    });
+    searchInputEl.addEventListener("keydown", (evt) => {
+      if (evt.key !== "Escape") return;
+      if (!this.searchQuery) return;
+      evt.preventDefault();
+      this.searchQuery = "";
+      searchInputEl.value = "";
+      updateSearchUi();
+      void this.renderFilteredCards();
+    });
+    clearSearchBtn.addEventListener("click", () => {
+      this.searchQuery = "";
+      searchInputEl.value = "";
+      updateSearchUi();
+      void this.renderFilteredCards();
+      searchInputEl.focus();
+    });
+    updateSearchUi();
+    this.emptyEl.hidden = true;
+    await this.renderFilteredCards();
   }
 
   private compareCards(a: CardRenderModel, b: CardRenderModel): number {
-    if (a.isPinned !== b.isPinned) {
-      return a.isPinned ? -1 : 1;
-    }
     switch (this.sortMode) {
       case "ctime-asc":
         return a.file.stat.ctime - b.file.stat.ctime;
@@ -168,7 +233,153 @@ export class InspirationView extends ItemView {
     }
   }
 
-  private async renderFileItem(listEl: HTMLElement, model: CardRenderModel): Promise<void> {
+  private getSortedModels(models: CardRenderModel[]): CardRenderModel[] {
+    const pinned = models.filter((model) => model.isPinned);
+    const normal = models.filter((model) => !model.isPinned);
+    pinned.sort((a, b) => this.compareCards(a, b));
+    normal.sort((a, b) => this.compareCards(a, b));
+    return [...pinned, ...normal];
+  }
+
+  private patchCardModel(filePath: string, patch: Partial<CardRenderModel>): void {
+    const idx = this.cardModels.findIndex((model) => model.file.path === filePath);
+    if (idx < 0) return;
+    const target = this.cardModels[idx];
+    if (!target) return;
+    Object.assign(target, patch);
+  }
+
+  private filterModelsBySearch(models: CardRenderModel[], query: string): CardRenderModel[] {
+    const tokens = query
+      .toLowerCase()
+      .split(/[\s\u3000]+/)
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    if (tokens.length === 0) return models;
+    return models.filter((model) => {
+      const body = model.body.toLowerCase();
+      const tags = model.tagsLine.toLowerCase();
+      return tokens.every((token) => body.includes(token) || tags.includes(token));
+    });
+  }
+
+  private async renderFilteredCards(animateFilePath?: string): Promise<void> {
+    if (!this.listEl || !this.emptyEl) return;
+    const passId = ++this.renderPassId;
+    this.imageExpansionControls.clear();
+    this.listEl.empty();
+    const filteredModels = this.filterModelsBySearch(this.cardModels, this.searchQuery);
+    const sortedModels = this.getSortedModels(filteredModels);
+    if (this.searchCountEl) {
+      this.searchCountEl.setText(String(sortedModels.length));
+    }
+    this.emptyEl.hidden = sortedModels.length > 0;
+    for (const model of sortedModels) {
+      if (passId !== this.renderPassId) return;
+      const itemEl = await this.renderFileItem(this.listEl, model);
+      if (passId !== this.renderPassId) return;
+      if (animateFilePath && model.file.path === animateFilePath) {
+        itemEl.addClass("is-new");
+        window.setTimeout(() => itemEl.removeClass("is-new"), 520);
+      }
+    }
+  }
+
+  private async insertCreatedCard(createdModel: CardRenderModel): Promise<void> {
+    if (!this.listEl || !this.emptyEl) {
+      await this.refresh();
+      return;
+    }
+    const filteredModels = this.filterModelsBySearch(this.cardModels, this.searchQuery);
+    const sortedModels = this.getSortedModels(filteredModels);
+    if (this.searchCountEl) {
+      this.searchCountEl.setText(String(sortedModels.length));
+    }
+    this.emptyEl.hidden = sortedModels.length > 0;
+    const insertIndex = sortedModels.findIndex((model) => model.file.path === createdModel.file.path);
+    if (insertIndex < 0) {
+      return;
+    }
+    const existingEl = this.listEl.querySelector<HTMLElement>(`.cw-inspiration-item[data-file-path="${CSS.escape(createdModel.file.path)}"]`);
+    if (existingEl) {
+      existingEl.remove();
+    }
+    const tempContainer = document.createElement("div");
+    const itemEl = await this.renderFileItem(tempContainer, createdModel);
+    const target = this.listEl.children.item(insertIndex);
+    if (target) {
+      this.listEl.insertBefore(itemEl, target);
+    } else {
+      this.listEl.appendChild(itemEl);
+    }
+    itemEl.addClass("is-new");
+    window.setTimeout(() => itemEl.removeClass("is-new"), 520);
+  }
+
+  private async createInspirationCard(): Promise<void> {
+    const configuredPath = this.plugin.settings.inspirationFolderPath.trim();
+    if (!configuredPath) {
+      new Notice("未设置灵感便签路径，请先在设置中填写。");
+      return;
+    }
+    const folder = this.app.vault.getAbstractFileByPath(configuredPath);
+    if (!(folder instanceof TFolder)) {
+      new Notice("灵感便签路径无效，请填写 Vault 内目录路径。");
+      return;
+    }
+    const filePath = this.buildUniqueInspirationFilePath(configuredPath, Date.now());
+    this.plugin.suppressNextInspirationRefreshForPath(filePath);
+    const cwDataBody = JSON.stringify({
+      warning: InspirationView.CW_DATA_WARNING,
+      ispinned: false,
+      color: this.pickRandomCardColor(),
+    }, null, 2);
+    const content = this.composeContent(null, cwDataBody, "");
+    try {
+      const createdFile = await this.app.vault.create(filePath, content);
+      const createdModel = { file: createdFile, ...this.parseCardContent(content) } as CardRenderModel;
+      this.cardModels.push(createdModel);
+      await this.insertCreatedCard(createdModel);
+    } catch (error) {
+      console.error("Failed to create inspiration card:", error);
+      new Notice("新建灵感便签失败，请重试");
+    }
+  }
+
+  private async modifyCardFile(file: TFile, content: string): Promise<void> {
+    this.plugin.suppressNextInspirationRefreshForPath(file.path);
+    await this.app.vault.modify(file, content);
+  }
+
+  private buildUniqueInspirationFilePath(folderPath: string, timestamp: number): string {
+    const baseName = this.formatInspirationFileBaseName(timestamp);
+    let candidate = `${folderPath}/${baseName}.md`;
+    let idx = 2;
+    while (this.app.vault.getAbstractFileByPath(candidate)) {
+      candidate = `${folderPath}/${baseName}-${idx}.md`;
+      idx += 1;
+    }
+    return candidate;
+  }
+
+  private formatInspirationFileBaseName(timestamp: number): string {
+    const date = new Date(timestamp);
+    const year = String(date.getFullYear());
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hour = String(date.getHours()).padStart(2, "0");
+    const minute = String(date.getMinutes()).padStart(2, "0");
+    const shortId = Math.random().toString(36).slice(2, 6).padEnd(4, "0").toUpperCase();
+    return `灵感-${year}${month}${day}-${hour}${minute}-${shortId}`;
+  }
+
+  private pickRandomCardColor(): string {
+    const { CARD_COLORS } = InspirationView;
+    const index = Math.floor(Math.random() * CARD_COLORS.length);
+    return CARD_COLORS[index] ?? CARD_COLORS[0] ?? "#4A86E9";
+  }
+
+  private async renderFileItem(listEl: HTMLElement, model: CardRenderModel): Promise<HTMLElement> {
     const { file } = model;
     let frontmatterBody = model.frontmatterBody;
     let cwDataBody = model.cwDataBody;
@@ -176,6 +387,7 @@ export class InspirationView extends ItemView {
     let currentColor = model.color;
 
     const itemEl = listEl.createDiv({ cls: "cw-inspiration-item" });
+    itemEl.dataset.filePath = file.path;
     itemEl.style.setProperty("--cw-inspiration-lines", String(this.getCollapsedLines()));
     const barEl = itemEl.createDiv({ cls: "cw-inspiration-item-bar" });
     const timeEl = barEl.createDiv({
@@ -210,8 +422,7 @@ export class InspirationView extends ItemView {
     let isImagesExpanded = this.expandedImageCards.has(file.path) ||
       (this.plugin.settings.inspirationAutoExpandImages && currentImages.length > 0);
     const setImagesExpanded = (expanded: boolean) => {
-      const shouldExpand = expanded && currentImages.length > 0;
-      isImagesExpanded = shouldExpand;
+      isImagesExpanded = expanded;
       imagesSectionEl.toggleClass("is-hidden", !isImagesExpanded);
       setIcon(mediaToggleBtn, isImagesExpanded ? "chevron-up" : "chevron-down");
       mediaToggleBtn.setAttribute("aria-label", isImagesExpanded ? "隐藏图片区" : "显示图片区");
@@ -232,8 +443,6 @@ export class InspirationView extends ItemView {
     });
     textareaEl.value = currentBody;
     tagsEditorEl.value = currentTagsLine;
-    textareaEl.setAttribute("aria-label", `${file.basename} 编辑区`);
-    tagsEditorEl.setAttribute("aria-label", `${file.basename} 标签编辑区`);
     tagsEditorEl.setAttribute("rows", "1");
     const handleAddImage = async () => {
       const selectedImage = await this.openImagePickerModal();
@@ -273,20 +482,31 @@ export class InspirationView extends ItemView {
     this.bindTagSuggestionEditor(tagsEditorEl);
 
     let lastSavedContent = this.composeContent(frontmatterBody, cwDataBody, textareaEl.value);
+    let saveDebounceTimer: number | null = null;
     const saveContent = async () => {
       const normalizedTags = this.normalizeTagLine(tagsEditorEl.value);
-      if (normalizedTags !== tagsEditorEl.value) {
+      const isTagEditorActive = document.activeElement === tagsEditorEl;
+      if (!isTagEditorActive && normalizedTags !== tagsEditorEl.value) {
         tagsEditorEl.value = normalizedTags;
       }
+      const nextFrontmatter = this.upsertFrontmatterTags(frontmatterBody, normalizedTags);
       const nextCwData = this.upsertCwDataCardContent(cwDataBody, normalizedTags, currentImages);
-      const nextComposed = this.composeContent(frontmatterBody, nextCwData, textareaEl.value);
+      const nextComposed = this.composeContent(nextFrontmatter, nextCwData, textareaEl.value);
       if (nextComposed === lastSavedContent) return;
       try {
-        await this.app.vault.modify(file, nextComposed);
+        await this.modifyCardFile(file, nextComposed);
         lastSavedContent = nextComposed;
+        frontmatterBody = nextFrontmatter;
         cwDataBody = nextCwData;
         currentBody = textareaEl.value;
         currentTagsLine = normalizedTags;
+        this.patchCardModel(file.path, {
+          frontmatterBody: nextFrontmatter,
+          cwDataBody: nextCwData,
+          body: currentBody,
+          tagsLine: currentTagsLine,
+          images: [...currentImages],
+        });
         await this.renderPreview(previewEl, currentBody, file.path);
         await this.renderTagPreview(tagsPreviewEl, currentTagsLine, file.path);
         this.renderImageSection(imagesSectionEl, currentImages, handleAddImage, handleRemoveImage);
@@ -295,6 +515,22 @@ export class InspirationView extends ItemView {
         console.error("Failed to save inspiration file:", error);
         new Notice("灵感便签保存失败，请重试");
       }
+    };
+    const scheduleAutoSave = () => {
+      if (saveDebounceTimer !== null) {
+        window.clearTimeout(saveDebounceTimer);
+      }
+      saveDebounceTimer = window.setTimeout(() => {
+        saveDebounceTimer = null;
+        void saveContent();
+      }, 300);
+    };
+    const flushAutoSave = () => {
+      if (saveDebounceTimer !== null) {
+        window.clearTimeout(saveDebounceTimer);
+        saveDebounceTimer = null;
+      }
+      void saveContent();
     };
 
     moreBtn.addEventListener("click", (evt) => {
@@ -308,10 +544,14 @@ export class InspirationView extends ItemView {
           const updated = this.composeContent(frontmatterBody, nextCwData, textareaEl.value);
           if (updated === lastSavedContent) return;
           try {
-            await this.app.vault.modify(file, updated);
+            await this.modifyCardFile(file, updated);
             cwDataBody = nextCwData;
             lastSavedContent = updated;
             currentColor = hex.toUpperCase();
+            this.patchCardModel(file.path, {
+              cwDataBody: nextCwData,
+              color: currentColor,
+            });
             this.applyCardColor(itemEl, hex);
             timeEl.setText(this.formatTimestamp(Date.now()));
           } catch (error) {
@@ -325,12 +565,16 @@ export class InspirationView extends ItemView {
           const updated = this.composeContent(frontmatterBody, nextCwData, textareaEl.value);
           if (updated === lastSavedContent) return;
           try {
-            await this.app.vault.modify(file, updated);
+            await this.modifyCardFile(file, updated);
             cwDataBody = nextCwData;
             isPinned = nextPinned;
             this.setPinnedBadgeVisible(pinnedBadgeEl, isPinned);
             lastSavedContent = updated;
-            await this.refresh();
+            this.patchCardModel(file.path, {
+              cwDataBody: nextCwData,
+              isPinned: nextPinned,
+            });
+            await this.renderFilteredCards();
           } catch (error) {
             console.error("Failed to save pin state:", error);
             new Notice("置顶设置失败，请重试");
@@ -345,7 +589,16 @@ export class InspirationView extends ItemView {
               void (async () => {
                 try {
                   await this.app.vault.trash(file, true);
+                  this.cardModels = this.cardModels.filter((entry) => entry.file.path !== file.path);
                   itemEl.remove();
+                  const filteredModels = this.filterModelsBySearch(this.cardModels, this.searchQuery);
+                  const sortedModels = this.getSortedModels(filteredModels);
+                  if (this.searchCountEl) {
+                    this.searchCountEl.setText(String(sortedModels.length));
+                  }
+                  if (this.emptyEl) {
+                    this.emptyEl.hidden = sortedModels.length > 0;
+                  }
                 } catch (error) {
                   console.error("Failed to delete inspiration file:", error);
                   new Notice("删除灵感便签失败，请重试");
@@ -360,6 +613,7 @@ export class InspirationView extends ItemView {
 
     textareaEl.addEventListener("input", () => {
       this.setEditorExpanded(textareaEl, document.activeElement === textareaEl);
+      scheduleAutoSave();
     });
     textareaEl.addEventListener("focus", () => {
       this.setEditorExpanded(textareaEl, true);
@@ -368,12 +622,16 @@ export class InspirationView extends ItemView {
       this.setEditorExpanded(textareaEl, false);
       previewEl.removeClass("is-hidden");
       textareaEl.addClass("is-hidden");
-      void saveContent();
+      flushAutoSave();
     });
     textareaEl.addEventListener("keydown", (evt) => {
       if ((evt.ctrlKey || evt.metaKey) && evt.key.toLowerCase() === "s") {
         evt.preventDefault();
         evt.stopPropagation();
+        if (saveDebounceTimer !== null) {
+          window.clearTimeout(saveDebounceTimer);
+          saveDebounceTimer = null;
+        }
         void saveContent();
       }
     });
@@ -393,6 +651,7 @@ export class InspirationView extends ItemView {
 
     tagsEditorEl.addEventListener("input", () => {
       this.setTagEditorExpanded(tagsEditorEl);
+      scheduleAutoSave();
     });
     tagsEditorEl.addEventListener("focus", () => {
       this.setTagEditorExpanded(tagsEditorEl);
@@ -401,12 +660,16 @@ export class InspirationView extends ItemView {
       tagsPreviewEl.removeClass("is-hidden");
       tagsEditorEl.addClass("is-hidden");
       this.setTagEditorExpanded(tagsEditorEl);
-      void saveContent();
+      flushAutoSave();
     });
     tagsEditorEl.addEventListener("keydown", (evt) => {
       if ((evt.ctrlKey || evt.metaKey) && evt.key.toLowerCase() === "s") {
         evt.preventDefault();
         evt.stopPropagation();
+        if (saveDebounceTimer !== null) {
+          window.clearTimeout(saveDebounceTimer);
+          saveDebounceTimer = null;
+        }
         void saveContent();
       }
     });
@@ -423,6 +686,7 @@ export class InspirationView extends ItemView {
       evt.stopPropagation();
       setImagesExpanded(!isImagesExpanded);
     });
+    return itemEl;
   }
 
   applyImageAutoExpandSetting(enabled: boolean): void {
@@ -445,6 +709,8 @@ export class InspirationView extends ItemView {
       return;
     }
     await MarkdownRenderer.render(this.app, normalized, previewEl, sourcePath, this);
+    previewEl.removeAttribute("aria-label");
+    previewEl.removeAttribute("title");
   }
 
   private async renderTagPreview(previewEl: HTMLElement, tagsLine: string, sourcePath: string): Promise<void> {
@@ -452,7 +718,10 @@ export class InspirationView extends ItemView {
     previewEl.empty();
     const tokens = this.extractTagTokens(tagsLine);
     if (tokens.length === 0) {
-      previewEl.createEl("p", { text: "点击添加标签（示例： #角色/主角 #世界观）" });
+      const hintText = this.plugin.settings.inspirationShowTagHint
+        ? "点击添加标签（示例： #角色/主角 #世界观）"
+        : "";
+      previewEl.createEl("p", { text: hintText });
       previewEl.addClass("is-empty");
       return;
     }
@@ -1124,6 +1393,43 @@ export class InspirationView extends ItemView {
 
   private normalizeTagLine(value: string): string {
     return this.formatTagLineFromTokens(this.extractTagTokens(value));
+  }
+
+  private upsertFrontmatterTags(frontmatterBody: string | null, tagsLine: string): string | null {
+    const tags = this.extractTagTokens(tagsLine).map((token) => token.replace(/^#/, ""));
+    const sourceLines = (frontmatterBody ?? "")
+      .replace(/\r\n?/g, "\n")
+      .split("\n");
+    const keptLines: string[] = [];
+    let i = 0;
+    while (i < sourceLines.length) {
+      const line = sourceLines[i] ?? "";
+      if (!/^tags\s*:/.test(line)) {
+        keptLines.push(line);
+        i += 1;
+        continue;
+      }
+      i += 1;
+      while (i < sourceLines.length) {
+        const nextLine = sourceLines[i] ?? "";
+        if (!/^\s+/.test(nextLine)) break;
+        i += 1;
+      }
+    }
+    while (keptLines.length > 0 && keptLines[keptLines.length - 1]?.trim() === "") {
+      keptLines.pop();
+    }
+    if (tags.length > 0) {
+      if (keptLines.length > 0) {
+        keptLines.push("");
+      }
+      keptLines.push("tags:");
+      for (const tag of tags) {
+        keptLines.push(`  - ${tag}`);
+      }
+    }
+    const normalized = keptLines.join("\n").trim();
+    return normalized.length > 0 ? normalized : null;
   }
 
   private extractTagTokens(value: unknown): string[] {
