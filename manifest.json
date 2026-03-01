@@ -3,7 +3,7 @@
   "name": "Chinese Novel Writer",
   "version": "0.1.7",
   "minAppVersion": "0.15.0",
-  "description": "方便中文小说写作的一组小功能",
+  "description": "A set of small features designed to make writing Chinese novels more convenient.",
   "author": "pingo8888",
   "authorUrl": "https://github.com/pingo8888",
   "isDesktopOnly": true
