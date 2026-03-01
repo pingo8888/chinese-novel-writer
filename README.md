@@ -106,11 +106,18 @@
 
 # 使用方法
 
-## 安装插件
+## 安装插件：方法一
 1. 开启obsidian的第三方插件功能。
 2. 在obsidian插件目录下，新建chinese novel writer目录。
 3. 将release中发布的main.js、styles.css和manifest.json拷贝到新建的目录下。
 4. 重启obsdian，随后在已安装插件中打开Chinese Novel Writer插件。
+
+## 安装插件：方法二
+1. 开启obsidian的第三方插件功能。
+2. 在官方的社区插件市场中，搜索并下载**BRAT插件**并开启
+3. 在BART插件的配置页面中，点击“Add beta plugin”按钮
+4. 在弹出的窗口内，设置插件路径为**本github网页**，版本为**Latest Version**
+5. 设置好后，点击“Add plugin”按钮，等待插件安装并启用。
 
 ## 配置插件
 1. 在插件设置界面，添加一组文件夹对应关系，比如（小说库->设定库）。
